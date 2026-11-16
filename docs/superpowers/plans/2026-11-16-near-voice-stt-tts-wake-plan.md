@@ -1,7 +1,7 @@
 # Kế hoạch: STT, TTS và wake word cho Near
 
 > Ngày 2026-11-16. Trạng thái: **đã chốt mục 7, đang thử trên board**. B1, B2 đã xong (`017f60c` trên `feat/m1-day-strip`).
-> B3 (STT cloud qua backend Harness), C1 (wake word KWS có sẵn) và phần wake của B6, B7 đã làm, chưa commit. TTS (A2, B4,
+> B3 (STT cloud qua backend Harness), C1 (wake word KWS có sẵn) và phần wake của B6, B7 đã làm (PR #2). TTS (A2, B4,
 > B5, B8 phần Piper, phần `say` của B6, B7) **tạm hoãn** theo người dùng.
 > **A1 đã đo (16/11, `phase0/RESULTS.md` mục E4b):** qua Harness, tiếng Việt (nova-2) sai 23% so với 7% của Zipformer và
 > chậm hơn khoảng 2 s; tiếng Anh (nova-3) sai 31%, tốt hơn Parakeet (47%). Người dùng chốt: **tiếng Việt chạy local
@@ -149,9 +149,9 @@ Mỗi bước có test riêng; chưa có test và chưa chạy test thì bước
 
 | # | Việc | Đạt khi | Test |
 |---|---|---|---|
-| C1 | ✅ chưa commit (`wake.py`: `SherpaKws`, `WakeWorker` chạy luồng riêng; `keywords/hey-near-zhen.txt`; listen ngay sau wake bắt đầu từ khung sau wake word). `WakeEngine` + `SherpaKws` port từ `phase0/wake/run_kws.py` (zh-en 3M, ngưỡng 0,15, score 2), cooldown 2 s, tắt bật bằng `wake`. Mục đích: chạy thông đường ống từ đầu tới cuối. **Biết trước là bắt kém** (E5: 2/12) | Đường ống `wake → listen → final` chạy trên board | `test_wake.py`: engine giả, cooldown, gate, tắt/bật, điểm cắt cuối wake word |
-| C2 | **Chốt tên wake word** trước khi thu dữ liệu (mục 7) | — | — |
-| C3 | Train openWakeWord riêng: mẫu dương tổng hợp bằng Piper (giọng `vi_VN` và giọng tiếng Anh nhiều người, nhiều cách viết kiểu "hây nia") cộng 50–100 bản ghi thật của 5 người trở lên, gần, xa, nói nhỏ; mẫu âm là vài giờ hội thoại văn phòng tiếng Việt. Chấm bằng `phase0/wake/kws_eval.py` | Bắt ≥ 9/10 lần; báo nhầm ≤ 1 lần mỗi 8 giờ văn phòng | Test cho script sinh dữ liệu và chấm điểm |
+| C1 | ✅ PR #2 (`wake.py`: `SherpaKws`, `WakeWorker` chạy luồng riêng; `keywords/hey-near-zhen.txt`; listen ngay sau wake bắt đầu từ khung sau wake word). `WakeEngine` + `SherpaKws` port từ `phase0/wake/run_kws.py` (zh-en 3M, ngưỡng 0,15, score 2), cooldown 2 s, tắt bật bằng `wake`. Mục đích: chạy thông đường ống từ đầu tới cuối. **Biết trước là bắt kém** (E5: 2/12) | Đường ống `wake → listen → final` chạy trên board | `test_wake.py`: engine giả, cooldown, gate, tắt/bật, điểm cắt cuối wake word |
+| C2 | ✅ 16/11: người dùng **giữ "Hey Near"** dù đã biết rủi ro báo nhầm với "hay này", "thầy này" (E5). Rủi ro đó được xử lý bằng dữ liệu âm ở C3 | — | — |
+| C3 | Đang làm (nhánh `feat/wake-train`, thư mục `wake/`; dữ liệu và môi trường ở `wake-data/` ngoài repo). openWakeWord: bộ phân loại nhỏ trên model melspectrogram và speech embedding đóng băng. **Mẫu dương:** giọng máy Piper chạy qua sherpa-onnx TTS (LibriTTS-R 904 giọng tiếng Anh với cách viết "hey near", "hey nia"…; các giọng `vi_VN` với "hây nia", "hây ni a"…, `near_wake.texts`), cộng bản ghi thật (`near_wake.record`, 10–20 lần mỗi người, gần, xa, nói nhỏ), thêm tiếng vang phòng và tiếng ồn nền. **Mẫu âm:** đặc trưng ACAV100M có sẵn của openWakeWord, khoảng 20 giờ tiếng Việt nói chuyện, và câu gần giống đọc bằng giọng máy ("hay này", "thầy này", "hay đấy à", "hey there"…). **Chấm** (`near_wake.evaluate`): tỉ lệ bắt trên 12 lần đọc E4 của người dùng và trên bản ghi của người không có trong tập train; số lần báo nhầm mỗi giờ trên ≥ 10 giờ tiếng Việt tách riêng (khác người nói với tập train). Giấy phép từng nguồn ghi ở `wake-data`: nguồn phi thương mại (CC BY-NC) chỉ dùng cho bản demo, bản v1 phải train lại bằng dữ liệu được phép dùng thương mại | Bắt ≥ 9/10 lần; báo nhầm ≤ 1 lần mỗi 8 giờ tiếng Việt | `wake/tests`: tool thu âm (máy thu giả), danh sách câu, sinh clip (TTS giả), chấm điểm (scorer giả) |
 | C4 | Engine `OpenWakeWord` (cần `onnxruntime`), chạy 1 luồng, đo CPU | ≤ 10% một nhân. Nếu quá thì thử microWakeWord (rẻ hơn, cần `tflite-runtime`) | `test_wake.py` thêm case cho engine mới (model giả) |
 
 ## 5. Thứ tự và phụ thuộc
