@@ -6,6 +6,22 @@ void main() {
   final now = DateTime(2026, 11, 16, 14, 12);
   Command? p(String s) => parseCommand(s, now);
 
+  group('cloud (Deepgram nova-2 vi) style: sentence case, punctuation, digits', () {
+    test('the same commands as the Zipformer ones', () {
+      expect(p('Đặt hẹn giờ 15 phút.'), const StartTimer(Duration(minutes: 15), focus: false));
+      expect(p('Hẹn giờ 25 phút để tập trung.'), const StartTimer(Duration(minutes: 25), focus: true));
+      expect(p('Hủy hẹn giờ.'), isA<CancelTimer>());
+      expect(p('Tiếp theo là gì?'), isA<WhatsNext>());
+      expect(p('Nhắc anh gọi cho chị Lan lúc 3 giờ chiều.'), AddReminder('Gọi cho chị Lan', DateTime(2026, 11, 16, 15)));
+      expect(p('Ghi lại mua sữa và trứng trên đường về.'), const AddNote('Mua sữa và trứng trên đường về'));
+      expect(p('Tắt màn hình đi.'), isA<ScreenOff>());
+    });
+
+    test('a wake word left at the start is dropped', () {
+      expect(p('Hey Near, tiếp theo là gì?'), isA<WhatsNext>());
+    });
+  });
+
   group('real Zipformer-vi 30M transcripts from Phase 0 E4', () {
     test('timers', () {
       expect(p('ĐẶT HẸN GIỜ MƯỜI LĂM PHÚT'), const StartTimer(Duration(minutes: 15), focus: false));

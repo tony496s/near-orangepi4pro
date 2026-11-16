@@ -51,7 +51,7 @@ void main() {
         reason: 'the circle is drawn where it was');
     var n = 0;
     // Three real taps on the board (16/11) missed the 64 px circle on its left; the last point is the zone's far corner.
-    for (final p in const [Offset(1381, 38), Offset(1390, 36), Offset(1384, 47), Offset(1362, 136)]) {
+    for (final p in const [Offset(1381, 38), Offset(1390, 36), Offset(1384, 47), Offset(1362, 96)]) {
       await tester.tapAt(p);
       await h.settle();
       expect(h.voice.sent.lastOrNull, 'listen l${++n}', reason: 'tap at $p');
@@ -61,6 +61,31 @@ void main() {
     await tester.tapAt(const Offset(1350, 60));
     await h.settle();
     expect(h.voice.sent.last, 'cancel', reason: 'left of the zone is the event block, not the mic');
+  });
+
+  testWidgets('VI/EN switch: only with English on offer, under the mic, its whole zone switches', (tester) async {
+    final h = await StripHarness.pump(tester, at: at(9, 20));
+    expect(find.byKey(const Key('lang')), findsNothing, reason: 'the service offers no English');
+    h.voice.emit(const VoiceReady('m', langs: ['vi', 'en']));
+    await h.settle();
+    expect(tester.getRect(find.byKey(const Key('lang'))), const Rect.fromLTWH(1360, 100, 120, 100));
+    expect(tester.getRect(find.byKey(const Key('lang-chip'))), const Rect.fromLTWH(1392, 114, 64, 40),
+        reason: 'drawn under the mic circle');
+    expect(find.text('VI'), findsOneWidget);
+    // Taps land left of the aim on this panel: the zone's far left corner still switches, and starts no listen.
+    await tester.tapAt(const Offset(1362, 196));
+    await h.settle();
+    expect(find.text('EN'), findsOneWidget);
+    expect(find.text('LỆNH TIẾNG ANH'), findsOneWidget);
+    expect(h.voice.sent.where((m) => m.startsWith('listen')), isEmpty);
+    await tester.tap(find.byKey(const Key('mic')));
+    await h.settle();
+    expect(find.text('ĐANG NGHE · TIẾNG ANH'), findsOneWidget);
+    expect(h.voice.listenLangs, ['en']);
+    h.voice.emit(const VoiceProcessing('l1'));
+    h.voice.emit(const VoiceFinal('l1', 'Blah blah.'));
+    await h.settle();
+    expect(find.text('Thử: Set a timer for 25 minutes · Add a note: buy milk · Remind me to call Lan at 3 pm'), findsOneWidget);
   });
 
   testWidgets('recap: to-do rows stay clear of the mic touch zone', (tester) async {

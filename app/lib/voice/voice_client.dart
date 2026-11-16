@@ -18,7 +18,11 @@ sealed class VoiceEvent {
     final id = j['id'] as String? ?? '';
     switch (j['ev']) {
       case 'ready':
-        return VoiceReady(j['model'] as String? ?? '');
+        final langs = j['langs'];
+        return VoiceReady(j['model'] as String? ?? '',
+            stt: j['stt'] as String? ?? '',
+            wake: j['wake'] as String? ?? 'off',
+            langs: langs is List && langs.isNotEmpty ? [for (final l in langs) '$l'] : const ['vi']);
       case 'listening':
         return VoiceListening(id);
       case 'level':
@@ -28,19 +32,33 @@ sealed class VoiceEvent {
         return VoiceProcessing(id);
       case 'final':
         return VoiceFinal(id, j['text'] as String? ?? '',
-            sttMs: (j['stt_ms'] as num?)?.toInt() ?? 0, audioMs: (j['audio_ms'] as num?)?.toInt() ?? 0);
+            sttMs: (j['stt_ms'] as num?)?.toInt() ?? 0,
+            audioMs: (j['audio_ms'] as num?)?.toInt() ?? 0,
+            engine: j['engine'] as String? ?? '');
       case 'timeout':
         return VoiceTimeout(id);
       case 'error':
         return VoiceError(j['msg'] as String? ?? '');
+      case 'wake':
+        return VoiceWake(j['keyword'] as String? ?? '');
     }
     return null;
   }
 }
 
 final class VoiceReady extends VoiceEvent {
-  const VoiceReady(this.model);
+  const VoiceReady(this.model, {this.stt = '', this.wake = 'off', this.langs = const ['vi']});
   final String model;
+
+  /// Languages a listen may ask for, the default first: ["vi"], or ["vi", "en"] when English (cloud, through
+  /// Harness) is set up. An older service sends none: Vietnamese only.
+  final List<String> langs;
+
+  /// Speech-to-text engine: "zipformer" (local) or "deepgram" (cloud first, local fallback).
+  final String stt;
+
+  /// Wake word spotter, or "off" when the service runs none.
+  final String wake;
 }
 
 final class VoiceListening extends VoiceEvent {
@@ -61,17 +79,26 @@ final class VoiceProcessing extends VoiceEvent {
 }
 
 final class VoiceFinal extends VoiceEvent {
-  const VoiceFinal(this.id, this.text, {this.sttMs = 0, this.audioMs = 0});
+  const VoiceFinal(this.id, this.text, {this.sttMs = 0, this.audioMs = 0, this.engine = ''});
   final String id;
   final String text;
   final int sttMs;
   final int audioMs;
+
+  /// The engine whose words these are ("zipformer", "deepgram"); for logs.
+  final String engine;
 }
 
 /// Nobody spoke within the service's no-speech timeout.
 final class VoiceTimeout extends VoiceEvent {
   const VoiceTimeout(this.id);
   final String id;
+}
+
+/// The wake word was heard. The app answers like a tap on the mic: the listen then starts right after the wake word.
+final class VoiceWake extends VoiceEvent {
+  const VoiceWake(this.keyword);
+  final String keyword;
 }
 
 final class VoiceError extends VoiceEvent {
@@ -91,7 +118,8 @@ abstract interface class VoiceLink {
   /// Connected and the model is loaded.
   bool get ready;
 
-  void listen(String id);
+  /// Starts a listen in [lang] ("vi", or "en" when [VoiceReady.langs] has it).
+  void listen(String id, {String lang = 'vi'});
 
   void cancel();
 
@@ -101,6 +129,9 @@ abstract interface class VoiceLink {
 
   /// Plays a short sound: "soft" or "alert".
   void chime(String name);
+
+  /// Turns wake word spotting on or off (off at night and during focus). Ignored by a service without a spotter.
+  void setWake(bool on);
 }
 
 /// TCP client for near-voice on localhost. Reconnects every [retry] while the service is down.
@@ -184,7 +215,7 @@ class VoiceClient implements VoiceLink {
   }
 
   @override
-  void listen(String id) => _send({'cmd': 'listen', 'id': id});
+  void listen(String id, {String lang = 'vi'}) => _send({'cmd': 'listen', 'id': id, 'lang': lang});
 
   @override
   void cancel() => _send({'cmd': 'cancel'});
@@ -194,6 +225,9 @@ class VoiceClient implements VoiceLink {
 
   @override
   void chime(String name) => _send({'cmd': 'chime', 'name': name});
+
+  @override
+  void setWake(bool on) => _send({'cmd': 'wake', 'on': on});
 
   /// Stops reconnecting and closes the event stream. Does not wait for listeners to drain it: a paused listener
   /// would otherwise keep close() pending forever.

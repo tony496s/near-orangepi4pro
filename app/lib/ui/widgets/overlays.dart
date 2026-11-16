@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../../app/app_controller.dart';
+import '../../domain/intent/en_parser.dart' show englishExamples;
 import '../../domain/intent/parser.dart' show examples;
 import '../theme.dart';
 import 'buttons.dart';
@@ -14,8 +15,9 @@ class ListeningOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = listening;
+    final en = l.lang == 'en';
     final (label, color) = switch (l.phase) {
-      ListenPhase.listening => ('ĐANG NGHE', Ink.cool),
+      ListenPhase.listening => (en ? 'ĐANG NGHE · TIẾNG ANH' : 'ĐANG NGHE', Ink.cool),
       ListenPhase.thinking => ('ĐANG HIỂU…', Ink.cool),
       ListenPhase.heard => ('ĐÃ NGHE', Ink.cool),
       ListenPhase.notUnderstood => ('CHƯA HIỂU', Ink.hot),
@@ -23,16 +25,18 @@ class ListeningOverlay extends StatelessWidget {
       ListenPhase.unavailable => ('GIỌNG NÓI CHƯA SẴN SÀNG', Ink.hot),
     };
     final body = switch (l.phase) {
+      ListenPhase.listening when en => 'Say a command, e.g. “set a timer for 25 minutes”',
       ListenPhase.listening => 'Nói lệnh, ví dụ “hẹn giờ 25 phút để tập trung”',
       ListenPhase.thinking => '',
       ListenPhase.heard => '“${l.text}”',
       ListenPhase.notUnderstood => '“${l.text}”',
       ListenPhase.noSpeech => 'Chạm nút mic rồi nói lại',
+      ListenPhase.unavailable when en => 'Lệnh tiếng Anh cần mạng · thử lại, hoặc chạm VI để nói tiếng Việt',
       ListenPhase.unavailable => 'Đang khởi động, trong lúc chờ vẫn dùng chạm được',
     };
     final hint = switch (l.phase) {
       ListenPhase.listening => 'Ngừng nói là tự gửi · chạm để gửi ngay',
-      ListenPhase.notUnderstood => 'Thử: ${examples.join(' · ')}',
+      ListenPhase.notUnderstood => 'Thử: ${(en ? englishExamples : examples).join(' · ')}',
       _ => '',
     };
     return GestureDetector(

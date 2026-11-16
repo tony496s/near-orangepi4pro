@@ -11,6 +11,14 @@ Group=orangepi
 SupplementaryGroups=audio
 WorkingDirectory=/home/orangepi/near/voice
 Environment=NEAR_MODELS=/home/orangepi/near/models
+# Vietnamese stays on the local model: Deepgram nova-2 through Harness measured 23% WER on the E4 set against 7% for
+# Zipformer, and 2 s slower (phase0 RESULTS.md, E4b). English (the app's VI/EN switch) goes to Harness, Deepgram nova-3
+# (31% WER against 47% for the best local model), once the board has a sign-in (voice/tools/harness_login.py).
+Environment=NEAR_STT=local
+Environment=NEAR_STT_EN=harness
+Environment=NEAR_HARNESS_AUTH=/home/orangepi/near/secrets/harness-auth.json
+# "Hey Near" trial with the stock keyword spotter (Phase 0 E5: catches about 1 in 6). Without its model: no wake word.
+Environment=NEAR_WAKE=kws
 # Both A76 cores (cpu6, cpu7): STT runs 2 threads there, and the UI keeps the A55 cores to itself.
 ExecStart=/usr/bin/taskset -c 6,7 /home/orangepi/near/venv/bin/python -m near_voice
 Restart=always

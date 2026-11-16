@@ -99,6 +99,53 @@ class MicButton extends StatelessWidget {
       );
 }
 
+/// The VI/EN switch under the mic: which language voice commands are spoken in. EN is filled (the voice then goes to
+/// the cloud); VI is a quiet outline. Place it at right 0, top [micZoneHeight]: the whole [micZoneWidth] x
+/// [langZoneHeight] zone takes the tap, the chip is drawn under the mic circle.
+class LangSwitch extends StatelessWidget {
+  const LangSwitch({super.key, required this.lang, required this.onTap, this.dim = false});
+
+  final String lang;
+  final VoidCallback onTap;
+  final bool dim;
+
+  @override
+  Widget build(BuildContext context) {
+    final en = lang == 'en';
+    return GestureDetector(
+      key: const Key('lang'),
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: micZoneWidth,
+        height: langZoneHeight,
+        child: Align(
+          alignment: Alignment.topRight,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 14, right: 24),
+            child: Opacity(
+              opacity: dim ? .35 : 1,
+              child: Container(
+                key: const Key('lang-chip'),
+                width: 64,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: en ? Ink.cool : const Color(0x00000000),
+                  border: Border.all(color: en ? Ink.cool : const Color(0x52F2EEE6), width: 1.5),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(en ? 'EN' : 'VI',
+                    style: ts(18, weight: FontWeight.w700, color: en ? Ink.onCool : Ink.dim, spacing: 1.5)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _MicGlyph extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {

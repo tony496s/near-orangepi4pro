@@ -308,6 +308,145 @@ void main() {
     });
   });
 
+  group('wake word', () {
+    test('"Hey Near" starts a listen like the mic, and its words run as a command', () async {
+      await make();
+      voice.emit(const VoiceWake('HEY_NEAR'));
+      expect(c.listening!.phase, ListenPhase.listening);
+      expect(voice.sent.last, 'listen l1');
+      voice.emit(const VoiceProcessing('l1'));
+      voice.emit(const VoiceFinal('l1', 'Đặt hẹn giờ 15 phút.', engine: 'deepgram'));
+      expect(c.timer!.duration, const Duration(minutes: 15));
+    });
+
+    test('a wake while already listening does not start another listen', () async {
+      await make();
+      c.talk();
+      voice.emit(const VoiceWake('HEY_NEAR'));
+      expect(voice.sent.where((s) => s.startsWith('listen')), ['listen l1']);
+      expect(c.listening!.id, 'l1');
+    });
+
+    test('a wake over a notice (e.g. not understood) starts a new listen', () async {
+      await make();
+      say('thời tiết hôm nay thế nào');
+      expect(c.listening!.phase, ListenPhase.notUnderstood);
+      voice.emit(const VoiceWake('HEY_NEAR'));
+      expect(c.listening!.phase, ListenPhase.listening);
+    });
+
+    test('the service is told: on by day, off at night and during focus, on again after', () async {
+      await make(hour: 22, minute: 59);
+      expect(voice.wakes, [true]);
+      run(const Duration(minutes: 1));
+      expect(c.night, isTrue);
+      expect(voice.wakes, [true, false]);
+      voice.emit(const VoiceWake('HEY_NEAR'));
+      expect(c.listening, isNull, reason: 'a late wake at night is ignored');
+      c.run(const ScreenOnCommand());
+      expect(voice.wakes, [true, false, true]);
+      say('hẹn giờ 1 phút để tập trung');
+      expect(c.focusing, isTrue);
+      expect(voice.wakes.last, isFalse);
+      voice.emit(const VoiceWake('HEY_NEAR'));
+      expect(c.listening, isNull);
+      run(const Duration(minutes: 1, seconds: 1));
+      expect(c.focusing, isFalse);
+      expect(voice.wakes.last, isTrue);
+    });
+
+    test('told again after the service reconnects, and not while it is down', () async {
+      await make();
+      expect(voice.wakes, [true]);
+      run(const Duration(seconds: 3));
+      expect(voice.wakes, [true], reason: 'only changes are sent');
+      voice.isReady = false;
+      voice.emit(const VoiceDisconnected());
+      run(const Duration(seconds: 2));
+      expect(voice.wakes, [true]);
+      voice.isReady = true;
+      voice.emit(const VoiceReady('m', stt: 'deepgram', wake: 'sherpa-kws'));
+      expect(voice.wakes, [true, true]);
+    });
+  });
+
+  group('VI/EN switch', () {
+    Future<void> withEnglish() async {
+      await make();
+      voice.emit(const VoiceReady('m', stt: 'zipformer', wake: 'sherpa-kws', langs: ['vi', 'en']));
+    }
+
+    test('Vietnamese by default; English is offered only by a service that has it', () async {
+      await make();
+      expect((c.voiceLang, c.englishAvailable, c.listenLang), ('vi', false, 'vi'));
+      voice.emit(const VoiceReady('m', langs: ['vi', 'en']));
+      expect(c.englishAvailable, isTrue);
+      voice.isReady = false;
+      expect(c.englishAvailable, isFalse, reason: 'the service went away');
+    });
+
+    test('in English a listen asks for en and its words go through the English parser', () async {
+      await withEnglish();
+      c.toggleVoiceLang();
+      expect((c.voiceLang, c.flash!.eyebrow), ('en', 'LỆNH TIẾNG ANH'));
+      c.talk();
+      expect((voice.sent.last, voice.listenLangs.last), ('listen l1', 'en'));
+      expect(c.listening!.lang, 'en');
+      voice.emit(const VoiceProcessing('l1'));
+      voice.emit(const VoiceFinal('l1', 'Set a timer for 10 minutes.', engine: 'deepgram'));
+      expect(c.timer!.duration, const Duration(minutes: 10));
+    });
+
+    test('English words not understood show English examples, Vietnamese ones are not read as English', () async {
+      await withEnglish();
+      c.toggleVoiceLang();
+      say("It's a notch. Reveal the pool direct to me.");
+      expect((c.listening!.phase, c.listening!.lang), (ListenPhase.notUnderstood, 'en'));
+      c.cancelTalk();
+      say('hẹn giờ 15 phút');
+      expect(c.listening!.phase, ListenPhase.notUnderstood, reason: 'in English mode, Vietnamese is not parsed');
+    });
+
+    test('back to Vietnamese: listens ask for vi and the Vietnamese parser runs', () async {
+      await withEnglish();
+      c.toggleVoiceLang();
+      c.toggleVoiceLang();
+      expect((c.voiceLang, c.flash!.eyebrow), ('vi', 'LỆNH TIẾNG VIỆT'));
+      say('hẹn giờ 15 phút');
+      expect(voice.listenLangs.last, 'vi');
+      expect(c.timer!.duration, const Duration(minutes: 15));
+    });
+
+    test('English chosen but gone from the service (no sign-in): listens fall back to Vietnamese', () async {
+      await withEnglish();
+      c.toggleVoiceLang();
+      voice.emit(const VoiceReady('m', langs: ['vi']));
+      expect((c.voiceLang, c.listenLang), ('en', 'vi'), reason: 'the choice is kept for when English is back');
+      say('hẹn giờ 15 phút');
+      expect(voice.listenLangs.last, 'vi');
+      expect(c.timer!.duration, const Duration(minutes: 15));
+    });
+
+    test('a failed English listen (cloud down) says so in its own words', () async {
+      await withEnglish();
+      c.toggleVoiceLang();
+      c.talk();
+      voice.emit(const VoiceProcessing('l1'));
+      voice.emit(const VoiceError('stt: HTTP 0'));
+      expect((c.listening!.phase, c.listening!.lang), (ListenPhase.unavailable, 'en'));
+    });
+
+    test('the choice survives a restart', () async {
+      await withEnglish();
+      c.toggleVoiceLang();
+      await store.idle;
+      final again = AppController(clock: clock, store: LocalStore(store.file), calendar: FixedCalendar(events), voice: FakeVoice(), log: (_) {});
+      await again.start(ticker: false);
+      expect(again.voiceLang, 'en');
+      again.dispose();
+    });
+  });
+
   test('timers, notes and reminders survive a restart', () async {
     await make();
     say('hẹn giờ 25 phút để tập trung');

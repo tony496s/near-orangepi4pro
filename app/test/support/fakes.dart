@@ -19,7 +19,13 @@ class FakeVoice implements VoiceLink {
   bool get ready => isReady;
 
   @override
-  void listen(String id) => sent.add('listen $id');
+  void listen(String id, {String lang = 'vi'}) {
+    sent.add('listen $id');
+    listenLangs.add(lang);
+  }
+
+  /// The language of every listen, in order (apart from [sent], whose entries tests split for the id).
+  final listenLangs = <String>[];
 
   @override
   void cancel() => sent.add('cancel');
@@ -29,6 +35,12 @@ class FakeVoice implements VoiceLink {
 
   @override
   void chime(String name) => sent.add('chime $name');
+
+  /// Every setWake, in order (kept apart from [sent], whose last entry tests read as the listen id).
+  final wakes = <bool>[];
+
+  @override
+  void setWake(bool on) => wakes.add(on);
 
   void emit(VoiceEvent e) => _events.add(e);
 }

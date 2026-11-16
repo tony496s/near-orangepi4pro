@@ -8,6 +8,7 @@ import '../data/calendar_source.dart';
 import '../data/local_store.dart';
 import '../domain/day_plan.dart';
 import '../domain/intent/commands.dart';
+import '../domain/intent/en_parser.dart';
 import '../domain/intent/parser.dart';
 import '../domain/models.dart';
 import '../voice/voice_client.dart';
@@ -32,10 +33,13 @@ class Flash {
 enum ListenPhase { listening, thinking, heard, notUnderstood, noSpeech, unavailable }
 
 class Listening {
-  const Listening(this.phase, {this.id = '', this.text = '', this.level = -60, this.until});
+  const Listening(this.phase, {this.id = '', this.text = '', this.level = -60, this.until, this.lang = 'vi'});
 
   final ListenPhase phase;
   final String id;
+
+  /// The language this listen was in: "vi" or "en" (the VI/EN switch).
+  final String lang;
 
   /// What was heard (heard, notUnderstood).
   final String text;
@@ -44,8 +48,8 @@ class Listening {
   /// When an informational phase (notUnderstood, noSpeech, unavailable) closes by itself.
   final DateTime? until;
 
-  Listening copyWith({ListenPhase? phase, String? text, double? level, DateTime? until}) =>
-      Listening(phase ?? this.phase, id: id, text: text ?? this.text, level: level ?? this.level, until: until);
+  Listening copyWith({ListenPhase? phase, String? text, double? level, DateTime? until}) => Listening(phase ?? this.phase,
+      id: id, text: text ?? this.text, level: level ?? this.level, until: until, lang: lang);
 }
 
 /// Full-screen notices that wait for a tap.
@@ -130,6 +134,12 @@ class AppController extends ChangeNotifier {
   StreamSubscription<VoiceEvent>? _voiceSub;
   bool _disposed = false;
 
+  /// What the service was last told about the wake word; null until told on this connection.
+  bool? _wakeSent;
+
+  /// Languages the voice service offers (its last "ready"), the default first.
+  List<String> _voiceLangs = const ['vi'];
+
   // ---------------------------------------------------------------- state for the UI
 
   DateTime get now => clock.now();
@@ -156,6 +166,19 @@ class AppController extends ChangeNotifier {
   }
 
   bool get peeking => peekUntil != null && now.isBefore(peekUntil!);
+
+  /// Whether "Hey Near" should start a listen: not at night (the room may be asleep) and not during a focus session
+  /// (a false wake there costs the most). The mic button works either way.
+  bool get wakeWanted => !night && !focusing;
+
+  /// The VI/EN switch, as saved. English goes through the cloud (Harness, Deepgram); Vietnamese stays on the board.
+  String get voiceLang => _state.voiceLang;
+
+  /// The service can take English right now (it has a Harness sign-in); the switch is only shown then.
+  bool get englishAvailable => (voice?.ready ?? false) && _voiceLangs.contains('en');
+
+  /// What the next listen asks for: English only when chosen and available, else Vietnamese.
+  String get listenLang => voiceLang == 'en' && englishAvailable ? 'en' : 'vi';
 
   /// Focus sessions completed today.
   List<FocusSession> get sessionsToday => _state.sessions.where((s) => s.completed && sameDay(s.end, now)).toList();
@@ -191,7 +214,20 @@ class AppController extends ChangeNotifier {
   }
 
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    _syncWake();
+    notifyListeners();
+  }
+
+  /// Tells the service when [wakeWanted] changes, and once after each (re)connection.
+  void _syncWake() {
+    final v = voice;
+    if (v == null || !v.ready) return;
+    final want = wakeWanted;
+    if (_wakeSent == want) return;
+    _wakeSent = want;
+    log('wake: ${want ? 'on' : 'off'}');
+    v.setWake(want);
   }
 
   // ---------------------------------------------------------------- once a second
@@ -272,11 +308,12 @@ class AppController extends ChangeNotifier {
   // ---------------------------------------------------------------- commands
 
   /// Runs a sentence (from speech or typed); shows "not understood" with examples when it does not parse.
-  void handleTranscript(String text) {
+  void handleTranscript(String text, {String lang = 'vi'}) {
     final t = now;
-    final c = parseCommand(text, t);
+    final c = lang == 'en' ? parseEnglishCommand(text, t) : parseCommand(text, t);
     if (c == null) {
-      listening = Listening(ListenPhase.notUnderstood, text: text.trim(), until: t.add(const Duration(seconds: 6)));
+      listening =
+          Listening(ListenPhase.notUnderstood, text: text.trim(), until: t.add(const Duration(seconds: 6)), lang: lang);
       _notify();
       return;
     }
@@ -389,10 +426,24 @@ class AppController extends ChangeNotifier {
       listening = Listening(ListenPhase.unavailable, until: t.add(const Duration(seconds: 4)));
     } else {
       final id = 'l${++_listenSeq}';
-      log('talk: listen $id');
-      listening = Listening(ListenPhase.listening, id: id);
-      v.listen(id);
+      final lang = listenLang;
+      log('talk: listen $id${lang == 'vi' ? '' : ' ($lang)'}');
+      listening = Listening(ListenPhase.listening, id: id, lang: lang);
+      v.listen(id, lang: lang);
     }
+    _notify();
+  }
+
+  /// The VI/EN switch: changes the language of the next voice commands, and says so.
+  void toggleVoiceLang() {
+    final t = now;
+    _touch(t);
+    _state.voiceLang = voiceLang == 'en' ? 'vi' : 'en';
+    log('voice lang: ${_state.voiceLang}');
+    _show(_state.voiceLang == 'en'
+        ? _flash('LỆNH TIẾNG ANH', '“Set a timer for 25 minutes”', meta: 'Giọng nói gửi lên cloud để nhận dạng', cool: true)
+        : _flash('LỆNH TIẾNG VIỆT', '“Hẹn giờ 25 phút”', meta: 'Nhận dạng ngay trên máy', cool: true));
+    _save();
     _notify();
   }
 
@@ -496,8 +547,20 @@ class AppController extends ChangeNotifier {
     final l = listening;
     final t = now;
     switch (e) {
-      case VoiceReady():
-        break;
+      case VoiceReady(:final model, :final stt, :final wake, :final langs):
+        log('voice: ready ($model, stt $stt, wake $wake, langs ${langs.join('/')})');
+        _wakeSent = null;
+        _voiceLangs = langs;
+      case VoiceWake(:final keyword):
+        final busy = l != null &&
+            (l.phase == ListenPhase.listening || l.phase == ListenPhase.thinking || l.phase == ListenPhase.heard);
+        if (!wakeWanted || busy) {
+          log('wake: $keyword ignored${busy ? ' (already listening)' : ''}');
+          return;
+        }
+        log('wake: $keyword');
+        talk();
+        return;
       case VoiceListening():
         break;
       case VoiceLevel(:final db):
@@ -506,18 +569,18 @@ class AppController extends ChangeNotifier {
       case VoiceProcessing(:final id):
         if (l == null || l.id != id || l.phase != ListenPhase.listening) return;
         listening = l.copyWith(phase: ListenPhase.thinking);
-      case VoiceFinal(:final id, :final text, :final sttMs, :final audioMs):
+      case VoiceFinal(:final id, :final text, :final sttMs, :final audioMs, :final engine):
         if (l == null || l.id != id) return;
-        log('voice: "$text" (audio ${audioMs}ms, stt ${sttMs}ms)');
+        log('voice: "$text" (audio ${audioMs}ms, stt ${sttMs}ms${engine.isEmpty ? '' : ', $engine'})');
         if (text.trim().isEmpty) {
           listening = l.copyWith(phase: ListenPhase.noSpeech, until: t.add(const Duration(seconds: 4)));
         } else if (heardHold == Duration.zero) {
-          handleTranscript(text);
+          handleTranscript(text, lang: l.lang);
           return;
         } else {
           listening = l.copyWith(phase: ListenPhase.heard, text: text);
           _heardTimer?.cancel();
-          _heardTimer = Timer(heardHold, () => handleTranscript(text));
+          _heardTimer = Timer(heardHold, () => handleTranscript(text, lang: l.lang));
         }
       case VoiceTimeout(:final id):
         if (l == null || l.id != id) return;
@@ -531,6 +594,7 @@ class AppController extends ChangeNotifier {
         if (l == null || (l.phase != ListenPhase.listening && l.phase != ListenPhase.thinking)) return;
         listening = l.copyWith(phase: ListenPhase.unavailable, until: t.add(const Duration(seconds: 4)));
       case VoiceDisconnected():
+        _wakeSent = null;
         if (l == null || (l.phase != ListenPhase.listening && l.phase != ListenPhase.thinking)) break;
         listening = l.copyWith(phase: ListenPhase.unavailable, until: t.add(const Duration(seconds: 4)));
     }

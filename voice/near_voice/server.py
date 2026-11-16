@@ -1,7 +1,14 @@
 """The near-voice TCP server: one listen at a time, events broadcast to every connected app.
 
 Audio path: mic -> FrameHub -> on_frame (ring buffer always; VAD + Segmenter only while listening) -> STT in a worker
-thread -> "final". VAD and STT do not run outside a listen, and audio never leaves RAM.
+thread -> "final". VAD and STT do not run outside a listen. Audio never leaves RAM, except the utterance itself when a
+cloud STT engine is configured (harness.py).
+
+Languages: [stt] transcribes the default one ([lang], Vietnamese); [engines] may add others, e.g. English through the
+Harness backend. A "listen" names its language; one the service does not have is answered with "error".
+
+Wake word (wake.py, optional): a hit sends "wake"; the app answers with an ordinary "listen", and a listen that comes
+within [wake_listen_s] starts right after the wake word instead of 0.5 s back, so "Hey Near" is not transcribed.
 """
 
 from __future__ import annotations
@@ -11,7 +18,7 @@ import logging
 import time
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from . import protocol as p
 from .audio import Frame, RingBuffer, frames_for, level_db
@@ -19,6 +26,7 @@ from .chime import Chimes
 from .segmenter import NoSpeech, Result, Segmenter, SegmenterConfig, Utterance
 from .stt import SttEngine
 from .vad import Vad
+from .wake import WakeHit
 
 log = logging.getLogger("near_voice.server")
 
@@ -32,6 +40,7 @@ MAX_CLIENT_BUFFER = 1 << 20
 class _Listen:
     id: str
     seg: Segmenter
+    stt: SttEngine
     levels: List[bytes] = field(default_factory=list)
     watchdog: Optional[asyncio.TimerHandle] = None
 
@@ -48,10 +57,15 @@ class VoiceServer:
         ring_s: float = 2.0,
         level_every: int = 3,
         no_audio_grace_s: float = 1.0,
+        wake_listen_s: float = 1.5,
+        lang: str = "vi",
         executor: Optional[Executor] = None,
     ) -> None:
         self.vad = vad
         self.stt = stt
+        self.lang = lang
+        # Engines for other languages than [lang], by language code.
+        self.engines: Dict[str, SttEngine] = {}
         self.chimes = chimes
         self.config = config
         self.ring = RingBuffer(frames_for(max(ring_s, preroll_s)))
@@ -67,6 +81,12 @@ class VoiceServer:
         self._server: Optional[asyncio.AbstractServer] = None
         # Called with the listen id before listening starts, e.g. to stop a sound that is playing.
         self.before_listen: List[Callable[[str], None]] = []
+        # Wake word: the spotter's name when one runs (goes into "ready"), the app's on/off switch, and the frame a
+        # listen should start from after the last hit (with when it was heard).
+        self.wake_engine: Optional[str] = None
+        self.wake_on = True
+        self._wake_listen_s = wake_listen_s
+        self._wake: Optional[Tuple[int, float]] = None
 
     # ---- lifecycle
 
@@ -105,11 +125,53 @@ class VoiceServer:
         if result is not None:
             self._end(listen, result)
 
+    # ---- wake word
+
+    def wake_wanted(self) -> bool:
+        """Whether the spotter should be fed now: a spotter runs, an app is connected and wants it, and no listen is
+        open or waiting for its words (the app is already listening, so a wake word would mean nothing)."""
+        return (self.wake_engine is not None and self.wake_on and bool(self._clients)
+                and self._listen is None and self._awaiting is None)
+
+    def on_wake(self, hit: WakeHit) -> None:
+        """The spotter heard the wake word (called on the event loop)."""
+        if not self.wake_wanted():
+            log.info("wake %s at frame %d: ignored, not wanted now", hit.keyword, hit.index)
+            return
+        self._wake = (hit.index + 1, asyncio.get_running_loop().time())
+        log.info("wake %s at frame %d", hit.keyword, hit.index)
+        self._send(p.wake(hit.keyword))
+
+    def _take_wake(self) -> Optional[int]:
+        """The frame a listen starts from when it answers a recent wake word, else None (normal pre-roll)."""
+        wake, self._wake = self._wake, None
+        if wake is None:
+            return None
+        index, at = wake
+        if asyncio.get_running_loop().time() - at > self._wake_listen_s:
+            return None
+        return index
+
+    # ---- languages
+
+    def langs(self) -> List[str]:
+        """The languages a listen may ask for, the default first. An engine with available() (a cloud one without a
+        sign-in) is left out while it says no."""
+        extra = [lang for lang, e in sorted(self.engines.items())
+                 if lang != self.lang and getattr(e, "available", lambda: True)()]
+        return [self.lang, *extra]
+
+    def engine_for(self, lang: Optional[str]) -> Optional[SttEngine]:
+        if lang is None or lang == self.lang:
+            return self.stt
+        return self.engines.get(lang)
+
     # ---- commands
 
-    def begin_listen(self, id_: str, from_index: Optional[int] = None) -> None:
+    def begin_listen(self, id_: str, from_index: Optional[int] = None, stt: Optional[SttEngine] = None) -> None:
         """Starts a listen. The utterance may begin [preroll_s] before now, or at frame [from_index] when given
-        (e.g. right after a wake word, so the wake word itself is not transcribed)."""
+        (e.g. right after a wake word, so the wake word itself is not transcribed). [stt] transcribes it (default:
+        the default language's engine)."""
         for hook in self.before_listen:
             try:
                 hook(id_)
@@ -117,12 +179,13 @@ class VoiceServer:
                 log.exception("before_listen hook failed")
         self._stop_listen()
         self.vad.reset()
-        listen = _Listen(id_, Segmenter(self.config))
+        listen = _Listen(id_, Segmenter(self.config), stt or self.stt)
         self._listen = listen
         self._awaiting = id_
         self._send(p.listening(id_))
         pre = self.ring.since(from_index) if from_index is not None else self.ring.last(self._preroll)
-        log.info("listen %s: start (%d frames before)", id_, len(pre))
+        log.info("listen %s: start (%d frames before)%s", id_, len(pre),
+                 "" if listen.stt is self.stt else f", {listen.stt.name}")
         for f in pre:
             result = listen.seg.feed(f.pcm, self.vad.is_speech(f.pcm), live=False)
             if result is not None:
@@ -158,7 +221,13 @@ class VoiceServer:
                 sender.write(p.error(f"bad command: {e}"))
             return
         if isinstance(cmd, p.Listen):
-            self.begin_listen(cmd.id)
+            from_index = self._take_wake()
+            stt = self.engine_for(cmd.lang)
+            if stt is None:
+                log.warning("listen %s: no %r engine (have %s)", cmd.id, cmd.lang, ", ".join(self.langs()))
+                self._send(p.error(f"stt: no {cmd.lang} engine"))
+                return
+            self.begin_listen(cmd.id, from_index, stt)
         elif isinstance(cmd, p.Cancel):
             self.cancel()
         elif isinstance(cmd, p.Finish):
@@ -166,6 +235,12 @@ class VoiceServer:
         elif isinstance(cmd, p.Chime):
             if self.chimes is not None:
                 self._spawn(self.chimes.play(cmd.name))
+        elif isinstance(cmd, p.Wake):
+            if cmd.on != self.wake_on:
+                log.info("wake word %s by the app", "on" if cmd.on else "off")
+            self.wake_on = cmd.on
+            if not cmd.on:
+                self._wake = None
         else:
             log.info("ignored unknown command %r", line[:200])
 
@@ -195,13 +270,13 @@ class VoiceServer:
             self._send(p.timeout(listen.id, reason))
             return
         self._send(p.processing(listen.id))
-        self._spawn(self._transcribe(listen.id, result))
+        self._spawn(self._transcribe(listen.id, result, listen.stt))
 
-    async def _transcribe(self, id_: str, utt: Utterance) -> None:
+    async def _transcribe(self, id_: str, utt: Utterance, stt: Optional[SttEngine] = None) -> None:
         loop = asyncio.get_running_loop()
         t0 = time.perf_counter()
         try:
-            text = await loop.run_in_executor(self._executor, self.stt.transcribe, utt.pcm)
+            text, engine = await loop.run_in_executor(self._executor, self._run_stt, stt or self.stt, utt.pcm)
         except Exception as e:  # noqa: BLE001
             log.exception("stt failed")
             if self._awaiting == id_:
@@ -216,7 +291,13 @@ class VoiceServer:
             log.info("listen %s: dropped, cancelled or superseded", id_)
             return
         self._awaiting = None
-        self._send(p.final(id_, text, utt.audio_ms, stt_ms, self.stt.name))
+        self._send(p.final(id_, text, utt.audio_ms, stt_ms, engine))
+
+    @staticmethod
+    def _run_stt(stt: SttEngine, pcm: bytes) -> Tuple[str, str]:
+        """On the STT thread: the words, and the engine that gave them (CloudFirstStt says which one answered)."""
+        text = stt.transcribe(pcm)
+        return text, getattr(stt, "last_engine", None) or stt.name
 
     def _spawn(self, coro) -> None:
         task = asyncio.ensure_future(coro)
@@ -238,7 +319,7 @@ class VoiceServer:
     async def _serve_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._clients.add(writer)
         log.info("app connected (%d)", len(self._clients))
-        writer.write(p.ready(self.stt.model, self.stt.name))
+        writer.write(p.ready(self.stt.model, self.stt.name, wake=self.wake_engine or "off", langs=self.langs()))
         try:
             while True:
                 try:
