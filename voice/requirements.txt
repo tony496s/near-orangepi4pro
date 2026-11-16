@@ -1,0 +1,3 @@
+# near-voice on the board (Python 3.11, aarch64). Versions measured in Phase 0 (E4).
+sherpa-onnx==2.0.1
+numpy==2.4.6

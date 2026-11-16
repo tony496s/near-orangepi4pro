@@ -17,7 +17,7 @@ venv/
 models/
 *.onnx
 *.wav
-!demo/sounds/*.wav
+!voice/sounds/*.wav
 
 # Local secrets and machine-specific config
 .env
