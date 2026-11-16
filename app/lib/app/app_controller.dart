@@ -130,6 +130,9 @@ class AppController extends ChangeNotifier {
   StreamSubscription<VoiceEvent>? _voiceSub;
   bool _disposed = false;
 
+  /// What the service was last told about the wake word; null until told on this connection.
+  bool? _wakeSent;
+
   // ---------------------------------------------------------------- state for the UI
 
   DateTime get now => clock.now();
@@ -156,6 +159,10 @@ class AppController extends ChangeNotifier {
   }
 
   bool get peeking => peekUntil != null && now.isBefore(peekUntil!);
+
+  /// Whether "Hey Near" should start a listen: not at night (the room may be asleep) and not during a focus session
+  /// (a false wake there costs the most). The mic button works either way.
+  bool get wakeWanted => !night && !focusing;
 
   /// Focus sessions completed today.
   List<FocusSession> get sessionsToday => _state.sessions.where((s) => s.completed && sameDay(s.end, now)).toList();
@@ -191,7 +198,20 @@ class AppController extends ChangeNotifier {
   }
 
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    _syncWake();
+    notifyListeners();
+  }
+
+  /// Tells the service when [wakeWanted] changes, and once after each (re)connection.
+  void _syncWake() {
+    final v = voice;
+    if (v == null || !v.ready) return;
+    final want = wakeWanted;
+    if (_wakeSent == want) return;
+    _wakeSent = want;
+    log('wake: ${want ? 'on' : 'off'}');
+    v.setWake(want);
   }
 
   // ---------------------------------------------------------------- once a second
@@ -496,8 +516,19 @@ class AppController extends ChangeNotifier {
     final l = listening;
     final t = now;
     switch (e) {
-      case VoiceReady():
-        break;
+      case VoiceReady(:final model, :final stt, :final wake):
+        log('voice: ready ($model, stt $stt, wake $wake)');
+        _wakeSent = null;
+      case VoiceWake(:final keyword):
+        final busy = l != null &&
+            (l.phase == ListenPhase.listening || l.phase == ListenPhase.thinking || l.phase == ListenPhase.heard);
+        if (!wakeWanted || busy) {
+          log('wake: $keyword ignored${busy ? ' (already listening)' : ''}');
+          return;
+        }
+        log('wake: $keyword');
+        talk();
+        return;
       case VoiceListening():
         break;
       case VoiceLevel(:final db):
@@ -506,9 +537,9 @@ class AppController extends ChangeNotifier {
       case VoiceProcessing(:final id):
         if (l == null || l.id != id || l.phase != ListenPhase.listening) return;
         listening = l.copyWith(phase: ListenPhase.thinking);
-      case VoiceFinal(:final id, :final text, :final sttMs, :final audioMs):
+      case VoiceFinal(:final id, :final text, :final sttMs, :final audioMs, :final engine):
         if (l == null || l.id != id) return;
-        log('voice: "$text" (audio ${audioMs}ms, stt ${sttMs}ms)');
+        log('voice: "$text" (audio ${audioMs}ms, stt ${sttMs}ms${engine.isEmpty ? '' : ', $engine'})');
         if (text.trim().isEmpty) {
           listening = l.copyWith(phase: ListenPhase.noSpeech, until: t.add(const Duration(seconds: 4)));
         } else if (heardHold == Duration.zero) {
@@ -531,6 +562,7 @@ class AppController extends ChangeNotifier {
         if (l == null || (l.phase != ListenPhase.listening && l.phase != ListenPhase.thinking)) return;
         listening = l.copyWith(phase: ListenPhase.unavailable, until: t.add(const Duration(seconds: 4)));
       case VoiceDisconnected():
+        _wakeSent = null;
         if (l == null || (l.phase != ListenPhase.listening && l.phase != ListenPhase.thinking)) break;
         listening = l.copyWith(phase: ListenPhase.unavailable, until: t.add(const Duration(seconds: 4)));
     }

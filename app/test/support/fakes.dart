@@ -30,6 +30,12 @@ class FakeVoice implements VoiceLink {
   @override
   void chime(String name) => sent.add('chime $name');
 
+  /// Every setWake, in order (kept apart from [sent], whose last entry tests read as the listen id).
+  final wakes = <bool>[];
+
+  @override
+  void setWake(bool on) => wakes.add(on);
+
   void emit(VoiceEvent e) => _events.add(e);
 }
 

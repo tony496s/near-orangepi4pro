@@ -308,6 +308,68 @@ void main() {
     });
   });
 
+  group('wake word', () {
+    test('"Hey Near" starts a listen like the mic, and its words run as a command', () async {
+      await make();
+      voice.emit(const VoiceWake('HEY_NEAR'));
+      expect(c.listening!.phase, ListenPhase.listening);
+      expect(voice.sent.last, 'listen l1');
+      voice.emit(const VoiceProcessing('l1'));
+      voice.emit(const VoiceFinal('l1', 'Đặt hẹn giờ 15 phút.', engine: 'deepgram'));
+      expect(c.timer!.duration, const Duration(minutes: 15));
+    });
+
+    test('a wake while already listening does not start another listen', () async {
+      await make();
+      c.talk();
+      voice.emit(const VoiceWake('HEY_NEAR'));
+      expect(voice.sent.where((s) => s.startsWith('listen')), ['listen l1']);
+      expect(c.listening!.id, 'l1');
+    });
+
+    test('a wake over a notice (e.g. not understood) starts a new listen', () async {
+      await make();
+      say('thời tiết hôm nay thế nào');
+      expect(c.listening!.phase, ListenPhase.notUnderstood);
+      voice.emit(const VoiceWake('HEY_NEAR'));
+      expect(c.listening!.phase, ListenPhase.listening);
+    });
+
+    test('the service is told: on by day, off at night and during focus, on again after', () async {
+      await make(hour: 22, minute: 59);
+      expect(voice.wakes, [true]);
+      run(const Duration(minutes: 1));
+      expect(c.night, isTrue);
+      expect(voice.wakes, [true, false]);
+      voice.emit(const VoiceWake('HEY_NEAR'));
+      expect(c.listening, isNull, reason: 'a late wake at night is ignored');
+      c.run(const ScreenOnCommand());
+      expect(voice.wakes, [true, false, true]);
+      say('hẹn giờ 1 phút để tập trung');
+      expect(c.focusing, isTrue);
+      expect(voice.wakes.last, isFalse);
+      voice.emit(const VoiceWake('HEY_NEAR'));
+      expect(c.listening, isNull);
+      run(const Duration(minutes: 1, seconds: 1));
+      expect(c.focusing, isFalse);
+      expect(voice.wakes.last, isTrue);
+    });
+
+    test('told again after the service reconnects, and not while it is down', () async {
+      await make();
+      expect(voice.wakes, [true]);
+      run(const Duration(seconds: 3));
+      expect(voice.wakes, [true], reason: 'only changes are sent');
+      voice.isReady = false;
+      voice.emit(const VoiceDisconnected());
+      run(const Duration(seconds: 2));
+      expect(voice.wakes, [true]);
+      voice.isReady = true;
+      voice.emit(const VoiceReady('m', stt: 'deepgram', wake: 'sherpa-kws'));
+      expect(voice.wakes, [true, true]);
+    });
+  });
+
   test('timers, notes and reminders survive a restart', () async {
     await make();
     say('hẹn giờ 25 phút để tập trung');

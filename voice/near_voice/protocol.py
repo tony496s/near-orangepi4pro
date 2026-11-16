@@ -33,7 +33,14 @@ class Chime:
     name: str
 
 
-Command = Union[Listen, Cancel, Finish, Chime]
+@dataclass(frozen=True)
+class Wake:
+    """Turns wake word spotting on or off. The app turns it off at night and during a focus session."""
+
+    on: bool
+
+
+Command = Union[Listen, Cancel, Finish, Chime, Wake]
 
 
 class ProtocolError(ValueError):
@@ -63,6 +70,11 @@ def decode_command(line: Union[str, bytes]) -> Optional[Command]:
         if not isinstance(name, str):
             raise ProtocolError("chime needs a name")
         return Chime(name)
+    if cmd == "wake":
+        on = obj.get("on")
+        if not isinstance(on, bool):
+            raise ProtocolError("wake needs a boolean on")
+        return Wake(on)
     if not isinstance(cmd, str):
         raise ProtocolError("missing cmd")
     return None
@@ -100,6 +112,11 @@ NO_AUDIO = "no_audio"
 def timeout(id_: str, reason: str) -> bytes:
     """reason: "no_speech" (the mic works, nobody spoke) or "no_audio" (the mic delivered silence or nothing)."""
     return encode_event("timeout", id=id_, reason=reason)
+
+
+def wake(keyword: str) -> bytes:
+    """The wake word was heard. The app answers with a normal "listen", which then starts right after the wake word."""
+    return encode_event("wake", keyword=keyword)
 
 
 def error(msg: str) -> bytes:

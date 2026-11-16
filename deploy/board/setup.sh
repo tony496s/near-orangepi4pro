@@ -14,6 +14,9 @@ fi
 
 NEAR_MODELS=${NEAR_MODELS:-$NEAR/models} "$HERE/fetch_models.sh"
 
+# Where the Harness sign-in for cloud speech to text goes (voice/tools/harness_login.py). Owner only.
+mkdir -p "$NEAR/secrets" && chmod 700 "$NEAR/secrets"
+
 if [ -x "$PATCHED" ]; then
     cp "$PATCHED" "$NEAR/app/flutter-pi.tmp" && chmod 755 "$NEAR/app/flutter-pi.tmp"
     mv "$NEAR/app/flutter-pi.tmp" "$NEAR/app/flutter-pi"

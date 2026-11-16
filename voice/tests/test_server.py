@@ -5,6 +5,7 @@ import unittest
 from near_voice.audio import FrameHub
 from near_voice.segmenter import SegmenterConfig
 from near_voice.server import VoiceServer
+from near_voice.wake import WakeHit
 
 from .helpers import HISS, LOUD, SILENCE, EnergyVad, FakeChimes, FakeStt, first_sample, frame
 
@@ -68,6 +69,7 @@ class Client:
 class ServerTestBase(unittest.IsolatedAsyncioTestCase):
     config = SegmenterConfig()
     grace = 1.0
+    wake_listen = 1.5
 
     async def asyncSetUp(self):
         self.vad = EnergyVad()
@@ -75,7 +77,8 @@ class ServerTestBase(unittest.IsolatedAsyncioTestCase):
         self.chimes = FakeChimes()
         self.hub = FrameHub()
         self.clients = []
-        self.server = VoiceServer(self.vad, self.stt, self.chimes, config=self.config, no_audio_grace_s=self.grace)
+        self.server = VoiceServer(self.vad, self.stt, self.chimes, config=self.config, no_audio_grace_s=self.grace,
+                                  wake_listen_s=self.wake_listen)
         self.hub.add(self.server.on_frame)
         self.port = await self.server.start("127.0.0.1", 0)
         self.client = await self.connect()
@@ -335,6 +338,127 @@ class CommandsTest(ServerTestBase):
         await self.listen("a1")
         await other.expect("listening", id="a1")
         await other.close()
+
+
+
+class EngineNameTest(ServerTestBase):
+    async def test_final_names_the_engine_that_answered(self):
+        self.stt.last_engine = "zipformer"  # e.g. CloudFirstStt fell back to the local model
+        await self.listen("a1")
+        self.utterance()
+        await self.client.expect("processing", id="a1")
+        await self.client.expect("final", id="a1", engine="zipformer")
+
+
+class WakeTest(ServerTestBase):
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.server.wake_engine = "fake-kws"
+
+    def hit(self) -> None:
+        self.server.on_wake(WakeHit("HEY_NEAR", self.server.ring.latest))
+
+    async def test_ready_names_the_spotter(self):
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
+        ev = json.loads(await reader.readline())
+        await Client(reader, writer).close()
+        self.assertEqual(ev["wake"], "fake-kws")
+
+    async def test_no_spotter_means_wake_is_never_wanted(self):
+        self.server.wake_engine = None
+        self.assertFalse(self.server.wake_wanted())
+
+    async def test_wake_is_announced_and_the_listen_starts_after_the_wake_word(self):
+        self.push(SILENCE, 10)
+        self.push(frame(9000), 12)  # "Hey Near"
+        self.assertTrue(self.server.wake_wanted())
+        self.hit()
+        await self.client.expect("wake", keyword="HEY_NEAR")
+        self.push(frame(12000), 8)  # the command starts before the app's "listen" arrives
+        await self.listen("w1")
+        self.push(LOUD, 10)
+        self.push(SILENCE, END_SILENCE)
+        await self.client.expect("processing", id="w1")
+        await self.client.expect("final", id="w1")
+        pcm = self.stt.calls[0]
+        self.assertEqual(first_sample(pcm), 12000)
+        self.assertFalse(frame(9000) in pcm, "the wake word was transcribed")
+
+    async def test_a_wake_is_used_by_one_listen_only(self):
+        starts = []
+        begin = self.server.begin_listen
+        self.server.begin_listen = lambda id_, from_index=None: (starts.append((id_, from_index)),
+                                                                 begin(id_, from_index))
+        self.push(frame(9000), 12)
+        self.hit()
+        wake_at = self.server.ring.latest
+        await self.client.expect("wake")
+        await self.listen("w1")
+        self.client.send({"cmd": "cancel"})
+        await self.listen("a2")
+        self.assertEqual(starts, [("w1", wake_at + 1), ("a2", None)])
+
+    async def test_wake_while_listening_is_not_wanted_and_not_sent(self):
+        await self.listen("a1")
+        self.assertFalse(self.server.wake_wanted())
+        self.hit()
+        await self.client.nothing_for(0.1)
+
+    async def test_wake_while_waiting_for_words_is_not_wanted(self):
+        self.stt.release.clear()  # STT blocks: the listen is waiting for its words
+        await self.listen("a1")
+        self.utterance()
+        await self.client.expect("processing", id="a1")
+        self.assertFalse(self.server.wake_wanted())
+        self.stt.release.set()
+        await self.client.expect("final", id="a1")
+        self.assertTrue(self.server.wake_wanted())
+
+    async def test_the_app_turns_wake_off_and_on(self):
+        self.client.send({"cmd": "wake", "on": False})
+        await self.listen("a1")  # a round trip, so the wake command has been handled
+        self.client.send({"cmd": "cancel"})
+        await self.listen("a2")
+        self.client.send({"cmd": "cancel"})
+        await self.client.nothing_for(0.05)
+        self.assertFalse(self.server.wake_on)
+        self.assertFalse(self.server.wake_wanted())
+        self.hit()
+        await self.client.nothing_for(0.1)
+        self.client.send({"cmd": "wake", "on": True})
+        await self.listen("a3")
+        self.client.send({"cmd": "cancel"})
+        await self.client.nothing_for(0.05)
+        self.assertTrue(self.server.wake_wanted())
+
+    async def test_no_app_connected_means_no_wake(self):
+        await self.client.close()
+        for _ in range(50):
+            if not self.server.wake_wanted():
+                break
+            await asyncio.sleep(0.01)
+        self.assertFalse(self.server.wake_wanted())
+
+
+class ShortWakeWindowTest(ServerTestBase):
+    wake_listen = 0.1
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.server.wake_engine = "fake-kws"
+
+    async def test_a_listen_after_the_wake_window_uses_the_normal_preroll(self):
+        self.push(frame(9000), 12)
+        self.server.on_wake(WakeHit("HEY_NEAR", self.server.ring.latest))
+        await self.client.expect("wake")
+        await asyncio.sleep(0.15)  # wake_listen is 0.1 s in this class
+        self.push(frame(12000), 4)
+        await self.listen("a1")
+        self.push(LOUD, 10)
+        self.push(SILENCE, END_SILENCE)
+        await self.client.expect("processing", id="a1")
+        await self.client.expect("final", id="a1")
+        self.assertTrue(frame(9000) in self.stt.calls[0], "no pre-roll")  # 0.5 s back, across the wake word
 
 
 if __name__ == "__main__":

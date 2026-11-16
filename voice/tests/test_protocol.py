@@ -20,12 +20,17 @@ class DecodeCommandTest(unittest.TestCase):
     def test_chime(self):
         self.assertEqual(p.decode_command('{"cmd":"chime","name":"soft"}'), p.Chime("soft"))
 
+    def test_wake_on_and_off(self):
+        self.assertEqual(p.decode_command('{"cmd":"wake","on":true}'), p.Wake(True))
+        self.assertEqual(p.decode_command('{"cmd":"wake","on":false}'), p.Wake(False))
+
     def test_unknown_command_is_ignored_for_forward_compatibility(self):
         self.assertIsNone(p.decode_command('{"cmd":"say","id":"x","text":"xin chào"}'))
 
     def test_malformed_lines_raise(self):
         for line in ['not json', '[1,2]', '{"id":"a"}', '{"cmd":"listen"}', '{"cmd":"listen","id":""}',
-                     '{"cmd":"listen","id":5}', '{"cmd":"chime"}', '{"cmd":7}', b'\xff\xfe']:
+                     '{"cmd":"listen","id":5}', '{"cmd":"chime"}', '{"cmd":7}', b'\xff\xfe',
+                     '{"cmd":"wake"}', '{"cmd":"wake","on":1}', '{"cmd":"wake","on":"true"}']:
             with self.subTest(line=line):
                 with self.assertRaises(p.ProtocolError):
                     p.decode_command(line)
@@ -48,6 +53,7 @@ class EncodeEventTest(unittest.TestCase):
                           "engine": "zipformer"})
         self.assertEqual(self.decode(p.timeout("a1", p.NO_SPEECH)), {"ev": "timeout", "id": "a1", "reason": "no_speech"})
         self.assertEqual(self.decode(p.error("stt: boom")), {"ev": "error", "msg": "stt: boom"})
+        self.assertEqual(self.decode(p.wake("HEY_NEAR")), {"ev": "wake", "keyword": "HEY_NEAR"})
 
     def test_vietnamese_text_is_utf8_not_escaped(self):
         data = p.final("a1", "ĐẶT HẸN GIỜ", 1, 1, "zipformer")

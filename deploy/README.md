@@ -7,7 +7,8 @@ two systemd units:
 ~/near/app      Flutter bundle (flutterpi_tool build) + flutter-pi (vsync-patched build from Phase 0)
 ~/near/voice    near-voice (rsync of voice/)
 ~/near/venv     Python venv for near-voice (voice/requirements.txt)
-~/near/models   silero_vad.onnx + sherpa-onnx-zipformer-vi-30M-int8-2026-02-09
+~/near/models   silero_vad.onnx + sherpa-onnx-zipformer-vi-30M-int8-2026-02-09 (+ the zh-en KWS model for the wake word)
+~/near/secrets  harness-auth.json: the board's Harness sign-in for cloud speech to text (owner only, never in git)
 ~/near/deploy   board/ scripts
 /usr/local/sbin/near-app-start                    boot wrapper (guard, fbcon, HDMI hotplug mask, GPU module)
 /etc/systemd/system/near-{app,voice}.service      both only start when /etc/near/autostart exists
@@ -27,6 +28,14 @@ On the board, the first time (and after changing `voice/requirements.txt` or the
 ```
 near/deploy/setup.sh                     # venv, models (copied from ~/phase0/stt/models when present), flutter-pi
 sudo near/deploy/install.sh              # wrapper + units, daemon-reload, enable; does not switch what boots
+```
+
+`near-voice` runs with cloud speech to text first and the wake word trial on (see the unit). For cloud STT, sign the
+board in once from a Mac, then copy the file (`voice/README.md`); until then the local model answers alone:
+
+```
+python3 voice/tools/harness_login.py
+scp ~/.near/harness-auth.json <ssh-host>:near/secrets/harness-auth.json
 ```
 
 ## Switch the display between Phase 0 and Near

@@ -12,6 +12,17 @@ DEPLOY = Path(__file__).parent
 BOARD = DEPLOY / "board"
 STT = "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09"
 STT_FILES = ["encoder.int8.onnx", "decoder.onnx", "joiner.int8.onnx", "tokens.txt"]
+KWS = "sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20"
+KWS_FILES = ["encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx", "decoder-epoch-13-avg-2-chunk-16-left-64.onnx",
+             "joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx", "tokens.txt"]
+
+
+def make_model(base, name, files):
+    d = base / name
+    d.mkdir(parents=True)
+    for f in files:
+        (d / f).write_text(f)
+    return d
 
 
 def unit(name):
@@ -74,7 +85,9 @@ class UnitFilesTest(unittest.TestCase):
         self.assertEqual(exec_start[:3], ["/usr/bin/taskset", "-c", "6,7"])
         self.assertEqual(exec_start[3:], ["/home/orangepi/near/venv/bin/python", "-m", "near_voice"])
         self.assertEqual(u[("Service", "WorkingDirectory")], ["/home/orangepi/near/voice"])
-        self.assertEqual(u[("Service", "Environment")], ["NEAR_MODELS=/home/orangepi/near/models"])
+        self.assertEqual(u[("Service", "Environment")], [
+            "NEAR_MODELS=/home/orangepi/near/models", "NEAR_STT=cloud",
+            "NEAR_HARNESS_AUTH=/home/orangepi/near/secrets/harness-auth.json", "NEAR_WAKE=kws"])
         self.assertEqual(u[("Unit", "ConditionPathExists")], ["/etc/near/autostart"])
 
     def test_wrapper_default_bundle_matches_where_push_puts_it(self):
@@ -166,16 +179,14 @@ class FetchModelsTest(Scratch):
         self.models = self.tmp / "models"
         self.seed = self.tmp / "seed"
         self.curl_log = self.tmp / "curl"
+        self.kws_seed = self.tmp / "kws-seed"
 
     def make_stt(self, base):
-        d = base / STT
-        d.mkdir(parents=True)
-        for f in STT_FILES:
-            (d / f).write_text(f)
-        return d
+        return make_model(base, STT, STT_FILES)
 
     def fetch(self, curl=None):
-        env = {"NEAR_MODELS": self.models, "NEAR_MODELS_SEED": self.seed, "NEAR_MODELS_URL": "https://example.invalid"}
+        env = {"NEAR_MODELS": self.models, "NEAR_MODELS_SEED": self.seed, "NEAR_MODELS_URL": "https://example.invalid",
+               "NEAR_KWS_SEED": self.kws_seed, "NEAR_KWS_URL": "https://kws.example.invalid"}
         env["NEAR_CURL"] = curl or self.fake("curl", f'echo "$*" >> {self.curl_log}; exit 22')
         return self.run_sh(BOARD / "fetch_models.sh", **env)
 
@@ -187,8 +198,29 @@ class FetchModelsTest(Scratch):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual((self.models / "silero_vad.onnx").read_text(), "vad")
         self.assertEqual((self.models / STT / "tokens.txt").read_text(), "tokens.txt")
-        self.assertFalse(self.curl_log.exists(), "nothing downloaded")
         self.assertFalse((self.models / ".extract").exists())
+
+    def test_copies_the_wake_word_model_from_the_phase0_download(self):
+        self.seed.mkdir()
+        (self.seed / "silero_vad.onnx").write_text("vad")
+        self.make_stt(self.seed)
+        make_model(self.kws_seed, KWS, KWS_FILES + ["en.phone"])
+        r = self.fetch()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"copied {KWS}", r.stdout)
+        self.assertEqual(sorted(p.name for p in (self.models / KWS).iterdir()), sorted(KWS_FILES + ["en.phone"]))
+        self.assertFalse(self.curl_log.exists(), "nothing downloaded")
+        self.assertNotIn("WARNING", r.stderr)
+
+    def test_a_missing_wake_word_model_is_only_a_warning(self):
+        self.seed.mkdir()
+        (self.seed / "silero_vad.onnx").write_text("vad")
+        self.make_stt(self.seed)
+        r = self.fetch()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("without the wake word", r.stderr)
+        self.assertIn(f"https://kws.example.invalid/{KWS}.tar.bz2", self.curl_log.read_text())
+        self.assertEqual(sorted(p.name for p in self.models.iterdir()), sorted(["silero_vad.onnx", STT]))
 
     def test_skips_models_already_there(self):
         self.models.mkdir()
@@ -246,13 +278,13 @@ class SetupTest(Scratch):
         (self.near / "app").mkdir(parents=True)
         (self.near / "models").mkdir()
         (self.near / "models" / "silero_vad.onnx").write_text("vad")
-        d = self.near / "models" / STT
-        d.mkdir()
-        for f in STT_FILES:
-            (d / f).write_text(f)
+        make_model(self.near / "models", STT, STT_FILES)
+        make_model(self.near / "models", KWS, KWS_FILES)
 
     def setup_sh(self, **env):
-        base = {"NEAR_HOME": self.near, "NEAR_PYTHON": "", "NEAR_FLUTTER_PI": self.tmp / "nope"}
+        # NEAR_CURL: nothing is downloaded for real, whatever the test leaves out.
+        base = {"NEAR_HOME": self.near, "NEAR_PYTHON": "", "NEAR_FLUTTER_PI": self.tmp / "nope",
+                "NEAR_CURL": self.fake("curl", "exit 22")}
         base.update(env)
         return self.run_sh(BOARD / "setup.sh", **base)
 
@@ -274,6 +306,15 @@ class SetupTest(Scratch):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual((self.near / "app" / "flutter-pi").read_text(), "stock")
         self.assertIn("WARNING", r.stdout)
+
+    def test_makes_an_owner_only_folder_for_the_harness_sign_in(self):
+        stock = self.near / "app" / "flutter-pi.stock"
+        stock.write_text("stock")
+        stock.chmod(0o755)
+        r = self.setup_sh()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(stat.S_IMODE((self.near / "secrets").stat().st_mode), 0o700)
+        self.assertIn("near/secrets/harness-auth.json", (BOARD / "near-voice.service").read_text())
 
     def test_fails_without_any_flutter_pi(self):
         r = self.setup_sh()
