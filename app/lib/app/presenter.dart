@@ -37,7 +37,7 @@ StripBlock stripBlock(AppController c) {
   if (first != null) {
     return StripBlock('NGÀY MAI', first.title, [hhmm(first.start), if (first.details.isNotEmpty) first.details].join(' · '));
   }
-  return const StripBlock('HÔM NAY', 'Lịch trống', 'Nói “hẹn giờ 25 phút để tập trung” để bắt đầu');
+  return const StripBlock('HÔM NAY', 'Lịch trống', 'Nói “hẹn giờ 10 phút để tập trung” để bắt đầu');
 }
 
 /// A reminder pin on the timeline.

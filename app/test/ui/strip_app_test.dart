@@ -202,6 +202,22 @@ void main() {
     expect(find.text('05:00'), findsOneWidget);
   });
 
+  testWidgets('scenario 1 from the columns: focus takes the whole strip, its end too; the break runs in the column',
+      (tester) async {
+    final h = await StripHarness.pump(tester, at: at(9, 20), columns: true);
+    await h.say('hẹn giờ 10 phút để tập trung');
+    expect(find.text('KHÔNG LÀM PHIỀN'), findsOneWidget, reason: 'the focus screen, as on one column');
+    expect(find.text('10:00'), findsOneWidget);
+    expect(find.byKey(const Key('column-gold')), findsNothing);
+    await h.run(const Duration(minutes: 10));
+    expect(find.text('Xong 10 phút tập trung'), findsOneWidget, reason: 'the whole-strip done screen');
+    expect(find.byKey(const Key('column-timer-primary')), findsNothing);
+    await tester.tap(find.byKey(const Key('alert-primary')));
+    await h.settle();
+    expect(find.byKey(const Key('column-gold')), findsOneWidget, reason: 'the columns come back');
+    expect(find.text('05:00'), findsOneWidget, reason: '"Nghỉ 5 phút" runs in the timer column');
+  });
+
   testWidgets('scenario 1: focus by voice, countdown, done alert, break', (tester) async {
     final h = await StripHarness.pump(tester, at: at(9, 20));
     await h.say('HẸN GIỜ HAI MƯƠI LĂM PHÚT ĐỂ TẬP TRUNG');
@@ -300,6 +316,7 @@ void main() {
     expect(find.text('CHƯA HIỂU'), findsOneWidget);
     expect(find.text('“thời tiết hôm nay thế nào”'), findsOneWidget);
     expect(find.textContaining('Thử: '), findsOneWidget);
+    expect(find.textContaining('Hẹn giờ 10 phút để tập trung'), findsOneWidget, reason: 'the focus example');
   });
 
   testWidgets('voice service down: the overlay says so', (tester) async {

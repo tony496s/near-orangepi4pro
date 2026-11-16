@@ -240,11 +240,12 @@ class AppController extends ChangeNotifier {
 
   DateTime? _goldSeen;
 
-  /// A timer that ended while the columns are home shows in its own column, not over the whole strip (scenario 5:
-  /// "hết giờ thì báo ngay trong cột của nó"). Its buttons are [alertText]'s and go to [alertAction] as usual.
+  /// A plain timer that ended while the columns are home shows in its own column, not over the whole strip (scenario
+  /// 5: "hết giờ thì báo ngay trong cột của nó"). Its buttons are [alertText]'s and go to [alertAction] as usual. A
+  /// focus session ran on the whole strip, so its end does too (scenario 1: "Nghỉ 5 phút").
   TimerDoneAlert? get timerDoneInColumn {
     final a = alert;
-    return a is TimerDoneAlert && layout.split && screen == Screen.home ? a : null;
+    return a is TimerDoneAlert && !a.timer.focus && layout.split && screen == Screen.home ? a : null;
   }
 
   /// The day the week view highlights with its free slots ("thứ năm rảnh lúc nào"); null: none.
@@ -625,7 +626,7 @@ class AppController extends ChangeNotifier {
     log('voice lang: ${_state.voiceLang}');
     _show(_state.voiceLang == 'en'
         ? _flash('LỆNH TIẾNG ANH', '“Set a timer for 25 minutes”', meta: 'Giọng nói gửi lên cloud để nhận dạng', cool: true)
-        : _flash('LỆNH TIẾNG VIỆT', '“Hẹn giờ 25 phút”', meta: 'Nhận dạng ngay trên máy', cool: true));
+        : _flash('LỆNH TIẾNG VIỆT', '“Hẹn giờ 10 phút”', meta: 'Nhận dạng ngay trên máy', cool: true));
     _save();
     _notify();
   }

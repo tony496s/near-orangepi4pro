@@ -468,8 +468,9 @@ void main() {
     c.alertAction(AlertAction.secondary);
     c.run(const StartTimer(Duration(minutes: 1), focus: true));
     await endTimer(tester, c);
-    expect(find.text('Nghỉ 5 phút'), findsOneWidget);
-    expect(find.text('Để sau'), findsOneWidget);
+    // A focus session ends on the whole strip ("Nghỉ 5 phút", the strip's alert screen), not in the column.
+    expect(c.timerDoneInColumn, isNull);
+    expect(find.byKey(const Key('column-timer-primary')), findsNothing);
     await everyZoom('focus done');
   });
 

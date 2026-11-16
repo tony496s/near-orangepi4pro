@@ -82,8 +82,9 @@ class _Strip extends StatelessWidget {
         case Screen.month:
           screen = MonthScreen(c: c);
           key = 'month';
-        case Screen.home when c.layout.split:
-          // Timers and focus sessions show in the timer column; answers and notes in the calendar column.
+        case Screen.home when c.layout.split && !c.focusing:
+          // Plain timers show in the timer column, answers and notes in the calendar column. A focus session takes the
+          // whole strip as on one column (scenario 1: the calendar steps back), then the columns come back.
           screen = ColumnsScreen(c: c);
           key = 'columns';
         case Screen.home:

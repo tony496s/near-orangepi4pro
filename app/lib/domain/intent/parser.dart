@@ -26,7 +26,7 @@ Command? parseCommand(String text, DateTime now) {
 }
 
 /// Example sentences shown when a sentence is not understood.
-const examples = ['Hẹn giờ 25 phút để tập trung', 'Ghi lại: mua sữa trên đường về', 'Nhắc anh gọi chị Lan lúc 3 giờ'];
+const examples = ['Hẹn giờ 10 phút để tập trung', 'Ghi lại: mua sữa trên đường về', 'Nhắc anh gọi chị Lan lúc 3 giờ'];
 
 const _notePrefixes = [
   ['ghi', 'lại'],

@@ -148,6 +148,18 @@ void main() {
     });
   });
 
+  test('on the columns a plain timer ends in its column, a focus session on the whole strip', () async {
+    await make();
+    say('hẹn giờ 1 phút');
+    run(const Duration(seconds: 61));
+    expect(c.timerDoneInColumn, isNotNull);
+    c.alertAction(AlertAction.secondary);
+    say('hẹn giờ 1 phút để tập trung');
+    run(const Duration(seconds: 61));
+    expect(c.alert, isA<TimerDoneAlert>());
+    expect(c.timerDoneInColumn, isNull, reason: 'focus ends with "Nghỉ 5 phút" on the whole strip');
+  });
+
   test('a new timer clears a "hết giờ" still waiting', () async {
     await make();
     say('hẹn giờ 1 phút');

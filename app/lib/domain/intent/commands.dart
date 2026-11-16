@@ -5,7 +5,7 @@ sealed class Command {
   const Command();
 }
 
-/// "hẹn giờ 25 phút để tập trung". [focus] sessions hide reminders until they end.
+/// "hẹn giờ 10 phút để tập trung". [focus] sessions hide reminders until they end.
 final class StartTimer extends Command {
   const StartTimer(this.duration, {required this.focus});
   final Duration duration;

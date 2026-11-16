@@ -113,6 +113,13 @@ void main() {
       expect(p('hẹn giờ 45 phút'), const StartTimer(Duration(minutes: 45), focus: false));
     });
 
+    test('the example sentences shown on the strip are understood; the first is a 10-minute focus', () {
+      for (final e in examples) {
+        expect(p(e), isNotNull, reason: e);
+      }
+      expect(p(examples.first), const StartTimer(Duration(minutes: 10), focus: true));
+    });
+
     test('naming the columns: the set in the order said', () {
       expect(p('chia màn ba cột: lịch, giá vàng, hẹn giờ'), const SplitColumns([Panel.calendar, Panel.gold, Panel.timer]));
       expect(p('chia màn hai cột lịch và tỷ giá'), const SplitColumns([Panel.calendar, Panel.fx]));

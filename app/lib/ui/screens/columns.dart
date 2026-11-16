@@ -848,7 +848,7 @@ class TimerZoom extends StatelessWidget {
           'Hết ${durationVi(t!.duration)}',
           ['Lúc ${hhmm(t.endsAt)}', if (after.isNotEmpty) after].join(' · '),
         ),
-      _TimerPhase.idle => ('Nói “hẹn giờ … phút”', 'hoặc “hẹn giờ 25 phút để tập trung”'),
+      _TimerPhase.idle => ('Nói “hẹn giờ … phút”', 'hoặc “hẹn giờ 10 phút để tập trung”'),
     };
     return Padding(
       padding: _mainPad,

@@ -26,7 +26,7 @@ class ListeningOverlay extends StatelessWidget {
     };
     final body = switch (l.phase) {
       ListenPhase.listening when en => 'Say a command, e.g. “set a timer for 25 minutes”',
-      ListenPhase.listening => 'Nói lệnh, ví dụ “hẹn giờ 25 phút để tập trung”',
+      ListenPhase.listening => 'Nói lệnh, ví dụ “hẹn giờ 10 phút để tập trung”',
       ListenPhase.thinking => '',
       ListenPhase.heard => '“${l.text}”',
       ListenPhase.notUnderstood => '“${l.text}”',
