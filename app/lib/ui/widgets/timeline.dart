@@ -23,6 +23,25 @@ class Timeline extends StatelessWidget {
 
   static double x(DateTime t) => ((t.hour + t.minute / 60 + t.second / 3600) - startHour) * pxPerHour;
 
+  /// Below this, a label placed after a short event is dropped rather than squeezed to a couple of letters.
+  static const minOutsideLabel = 36.0;
+
+  static const _boxPadding = 9.0;
+
+  /// Events drawn on the timeline, by start time (deadlines have no box).
+  List<CalendarEvent> get _shown =>
+      [...events.where((e) => e.kind != EventKind.deadline)]..sort((a, b) => a.start.compareTo(b.start));
+
+  static TextStyle get _labelStyle => ts(14, weight: FontWeight.w500);
+
+  static double _textWidth(String text) {
+    final tp = TextPainter(text: TextSpan(text: text, style: _labelStyle), textDirection: TextDirection.ltr, maxLines: 1)
+      ..layout();
+    final w = tp.width;
+    tp.dispose();
+    return w;
+  }
+
   @override
   Widget build(BuildContext context) {
     final n = now;
@@ -58,7 +77,7 @@ class Timeline extends StatelessWidget {
               child: Text(two(h), textAlign: TextAlign.center, style: ts(13, weight: FontWeight.w500, color: Ink.faint, height: 1)),
             ),
           ],
-          for (final e in events) ..._event(e, n),
+          for (final (i, e) in _shown.indexed) ..._event(e, n, i + 1 < _shown.length ? x(_shown[i + 1].start) : stripWidth),
           for (final p in pins) _pin(p),
           if (nx != null) _nowLine(nx),
         ],
@@ -66,13 +85,16 @@ class Timeline extends StatelessWidget {
     );
   }
 
-  List<Widget> _event(CalendarEvent e, DateTime? n) {
+  /// The box, and for a short event whose title does not fit inside, a label after it that stops before [nextX]
+  /// (the start of the next event) so labels never run over other events.
+  List<Widget> _event(CalendarEvent e, DateTime? n, double nextX) {
     final x0 = x(e.start);
     final w = (x(e.end) - x0 - 3).clamp(4.0, stripWidth);
-    if (x0 >= stripWidth || x0 + w <= 0 || e.kind == EventKind.deadline) return const [];
+    if (x0 >= stripWidth || x0 + w <= 0) return const [];
     final past = n != null && !e.end.isAfter(n);
     final hi = e.id == highlightId;
-    final narrow = w < 64;
+    final fits = _textWidth(e.title) <= w - 2 * _boxPadding;
+    final narrow = w < 64 && !fits;
     final box = Positioned(
       left: x0,
       top: 30,
@@ -81,7 +103,7 @@ class Timeline extends StatelessWidget {
       child: Opacity(
         opacity: past ? .38 : 1,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9),
+          padding: const EdgeInsets.symmetric(horizontal: _boxPadding),
           alignment: Alignment.centerLeft,
           decoration: BoxDecoration(
             color: hi ? const Color(0x4DFFB36B) : const Color(0x21F2EEE6),
@@ -91,19 +113,23 @@ class Timeline extends StatelessWidget {
           ),
           child: narrow
               ? null
-              : Text(e.title, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false, style: ts(14, weight: FontWeight.w500)),
+              : Text(e.title, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false, style: _labelStyle),
         ),
       ),
     );
-    if (!narrow) return [box];
+    final labelX = x0 + w + 8;
+    final room = nextX.clamp(0.0, stripWidth) - labelX - 6;
+    if (!narrow || room < minOutsideLabel) return [box];
     return [
       box,
       Positioned(
-        left: x0 + w + 8,
+        left: labelX,
         top: 40,
+        width: room,
         child: Opacity(
           opacity: past ? .38 : 1,
-          child: Text(e.title, maxLines: 1, softWrap: false, style: ts(14, weight: FontWeight.w500, color: Ink.dim)),
+          child: Text(e.title,
+              maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false, style: _labelStyle.copyWith(color: Ink.dim)),
         ),
       ),
     ];
