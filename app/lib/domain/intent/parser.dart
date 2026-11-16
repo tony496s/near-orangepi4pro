@@ -118,10 +118,16 @@ Command? _unsupported(List<String> t) {
 }
 
 const _timerWords = ['hẹn giờ', 'đặt giờ', 'bấm giờ', 'đếm giờ', 'đếm ngược', 'tập trung'];
+const _stopVerbs = ['hủy', 'dừng', 'tắt', 'bỏ', 'xóa', 'ngừng', 'kết thúc'];
+
+/// Zipformer often hears "hẹn giờ" as "hiện giờ", which also means "right now" ("hiện giờ là mấy giờ"). It is read as
+/// the timer word only where "now" makes no sense: right before a duration or right after a stop verb.
+const _misheardTimer = ['hiện', 'giờ'];
 
 Command? _cancelTimer(List<String> t) {
-  final verb = hasAny(t, ['hủy', 'dừng', 'tắt', 'bỏ', 'xóa', 'ngừng', 'kết thúc']);
-  return verb && hasAny(t, _timerWords) ? const CancelTimer() : null;
+  if (hasAny(t, _stopVerbs) && hasAny(t, _timerWords)) return const CancelTimer();
+  final k = indexOfPhrase(t, _misheardTimer);
+  return k > 0 && _stopVerbs.contains(t[k - 1]) ? const CancelTimer() : null;
 }
 
 Command? _timeLeft(List<String> t) {
@@ -132,7 +138,11 @@ Command? _timeLeft(List<String> t) {
 }
 
 Command? _startTimer(List<String> t) {
-  if (!hasAny(t, _timerWords)) return null;
+  if (!hasAny(t, _timerWords)) {
+    final k = indexOfPhrase(t, _misheardTimer);
+    final d = k < 0 ? null : readDuration(t, k + _misheardTimer.length);
+    return d != null && d.duration > Duration.zero ? StartTimer(d.duration, focus: false) : null;
+  }
   final focus = hasPhrase(t, 'tập trung');
   for (var i = 0; i < t.length; i++) {
     final d = readDuration(t, i);

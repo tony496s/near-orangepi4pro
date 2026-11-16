@@ -15,6 +15,19 @@ void main() {
       expect(p('HỦY HẸN GIỜ'), isA<CancelTimer>());
     });
 
+    test('"hẹn giờ" misheard as "hiện giờ" (seen on the board 16/11) is a timer only next to a duration or a stop verb', () {
+      expect(p('HIỆN GIỜ HAI MƯƠI LĂM PHÚT ĐỂ TẬP TRUNG'), const StartTimer(Duration(minutes: 25), focus: true));
+      expect(p('HIỆN GIỜ MƯỜI PHÚT'), const StartTimer(Duration(minutes: 10), focus: false));
+      expect(p('ĐẶT HIỆN GIỜ MƯỜI LĂM PHÚT'), const StartTimer(Duration(minutes: 15), focus: false));
+      expect(p('DỪNG HIỆN GIỜ'), isA<CancelTimer>());
+      expect(p('HỦY HIỆN GIỜ'), isA<CancelTimer>());
+      // "hiện giờ" also means "right now": those sentences must keep their meaning.
+      expect(p('HIỆN GIỜ LÀ MẤY GIỜ'), isA<WhatTime>());
+      expect(p('HIỆN GIỜ CÒN BAO NHIÊU PHÚT'), isA<TimeLeft>());
+      expect(p('HIỆN GIỜ TÔI CÓ MƯỜI PHÚT RẢNH'), isNull);
+      expect(p('HIỆN GIỜ TẮT MÀN HÌNH ĐI'), isA<ScreenOff>());
+    });
+
     test('reminder that lost "chiều" still lands at 15:00', () {
       expect(p('NHẮC ANH GỌI CHO CHỊ LAN LÚC BA GIỜ'), AddReminder('Gọi cho chị Lan', DateTime(2026, 11, 16, 15)));
     });
