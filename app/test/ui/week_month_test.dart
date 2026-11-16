@@ -83,10 +83,12 @@ void main() {
       final opened = <DateTime>[];
       await pump(tester, monday.add(const Duration(hours: 9)), (c) => WeekScreen(c: c, onOpenDay: opened.add));
       expect(find.text('TUẦN NÀY · 16–22/11'), findsOneWidget);
-      expect(find.text('16 cuộc họp · 1 hạn chót'), findsOneWidget);
+      // Two deadlines: the quote on Friday and the weekly report on Thursday (demo 6 needs two tasks that sound alike).
+      expect(find.text('16 cuộc họp · 2 hạn chót'), findsOneWidget);
       expect(find.text('T2 16 · HÔM NAY'), findsOneWidget);
       expect(find.text('Kế hoạch quý'), findsOneWidget);
-      expect(find.text('Hạn gửi báo giá'), findsOneWidget);
+      expect(find.text(SampleCalendarSource.deadlineTitle), findsOneWidget);
+      expect(find.text(SampleCalendarSource.reportTitle), findsOneWidget);
       expect(find.text('Đá bóng'), findsOneWidget);
       expect(find.text('Trống'), findsOneWidget, reason: 'Saturday');
       for (var w = DateTime.monday; w <= DateTime.sunday; w++) {
@@ -167,7 +169,7 @@ void main() {
       expect(tester.getRect(find.byKey(const ValueKey('month-day-30'))).right, lessThanOrEqualTo(1360));
       expect(find.text('25 Release 1.2'), findsOneWidget);
       expect(find.text('28 Sinh nhật mẹ'), findsOneWidget);
-      expect(find.text('20 Hạn gửi báo giá'), findsOneWidget);
+      expect(find.text('20 ${SampleCalendarSource.deadlineTitle}'), findsOneWidget);
       expect(opacityOf(tester, const ValueKey('month-day-13')), .4, reason: 'past');
       expect(opacityOf(tester, const ValueKey('month-day-16')), 1, reason: 'today');
       double bar(int day) => tester.getSize(find.byKey(ValueKey('bar-$day'))).height;
@@ -184,7 +186,7 @@ void main() {
       await tester.pump();
       expect(c.screen, Screen.month);
       expect(c.countdownTo?.title, SampleCalendarSource.deadlineTitle);
-      expect(find.text('HẠN GỬI BÁO GIÁ'), findsOneWidget);
+      expect(find.text('HẠN GỬI BÁO GIÁ CHO KHÁCH'), findsOneWidget);
       expect(find.text('Còn 4 ngày · Thứ Sáu 20/11'), findsOneWidget);
       for (var d = 16; d <= 20; d++) {
         expect(find.byKey(ValueKey('span-$d')), findsOneWidget, reason: '$d');

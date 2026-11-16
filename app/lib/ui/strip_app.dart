@@ -5,6 +5,7 @@ import '../app/app_controller.dart';
 import 'screens/alert.dart';
 import 'screens/ambient.dart';
 import 'screens/columns.dart';
+import 'screens/done.dart';
 import 'screens/focus.dart';
 import 'screens/gold.dart';
 import 'screens/gold_alert.dart';
@@ -51,7 +52,10 @@ class _Strip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final alert = c.alert;
-    final night = c.night && alert == null;
+    // The done-task question and the done screen (with its undo) take the whole strip, on the columns too.
+    final doneChoice = c.doneChoice;
+    final doneUndo = c.doneUndo;
+    final night = c.night && alert == null && doneChoice == null && doneUndo == null;
     // A timer that ends on the columns shows in its column; the mic and the VI/EN switch stay.
     final fullAlert = alert != null && c.timerDoneInColumn == null;
     final Widget screen;
@@ -59,6 +63,12 @@ class _Strip extends StatelessWidget {
     if (fullAlert) {
       screen = alert is GoldCrossedAlert ? GoldAlertScreen(c: c, alert: alert) : AlertScreen(c: c, alert: alert);
       key = 'alert-${alert.shownAt.microsecondsSinceEpoch}';
+    } else if (doneChoice != null) {
+      screen = DoneChoiceScreen(c: c, choice: doneChoice);
+      key = 'done-choice';
+    } else if (doneUndo != null) {
+      screen = DoneUndoScreen(c: c, done: doneUndo);
+      key = 'done-${doneUndo.since.microsecondsSinceEpoch}';
     } else if (night) {
       screen = NightScreen(c: c);
       key = 'night';

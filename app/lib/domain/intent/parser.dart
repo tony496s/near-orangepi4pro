@@ -14,6 +14,7 @@ Command? parseCommand(String text, DateTime now) {
   if (t.isEmpty) return null;
   return _note(t) ??
       _reminder(t, now) ??
+      _markDone(t) ??
       _screen(t) ??
       _layout(t) ??
       _gold(t) ??
@@ -335,4 +336,54 @@ Command? _simple(List<String> t) {
     return const GoHome();
   }
   return null;
+}
+
+/// "hoàn thành" comes out of [tokenize] as "hòan thành" (its old/new tone fix also hits "hoàn"); both are listed.
+const _doneWords = [['xong'], ['hoàn', 'thành'], ['hòan', 'thành']];
+const _doneLead = {'việc', 'cái', 'vụ', 'đã', 'là', 'làm'};
+const _doneTail = {'rồi', 'nhé', 'nha', 'ạ', 'đi', 'đã', 'là', 'làm', 'việc'};
+
+/// "xong việc gửi báo giá cho khách", "đánh dấu xong gửi báo giá", "đánh dấu gửi báo giá là xong", "gửi báo giá xong
+/// rồi", "đã hoàn thành việc gửi báo giá". The done word must lead the sentence (after "đánh dấu", "đã", "làm") or end
+/// it (before "rồi", "nhé"), so a "xong" inside other words is left alone. "xong" alone names no task: not understood.
+/// Sentences about timers ("tập trung đến khi xong") are left to the timer rules.
+Command? _markDone(List<String> t) {
+  var body = t;
+  if (indexOfPhrase(body, const ['đánh', 'dấu']) == 0) body = body.sublist(2);
+  var found = false;
+  // the done word at the start: "xong việc …", "đã xong …", "làm xong …"
+  var k = 0;
+  while (k < body.length && (body[k] == 'đã' || body[k] == 'làm')) {
+    k++;
+  }
+  for (final w in _doneWords) {
+    if (indexOfPhrase(body, w, k) == k) {
+      body = body.sublist(k + w.length);
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    // the done word at the end: "… xong rồi", "… là xong", "… đã hoàn thành"
+    var end = body.length;
+    while (end > 0 && const {'rồi', 'nhé', 'nha', 'ạ'}.contains(body[end - 1])) {
+      end--;
+    }
+    for (final w in _doneWords) {
+      if (end >= w.length && indexOfPhrase(body.sublist(end - w.length, end), w) == 0) {
+        body = body.sublist(0, end - w.length);
+        found = true;
+        break;
+      }
+    }
+  }
+  if (!found) return null;
+  while (body.isNotEmpty && _doneLead.contains(body.first)) {
+    body = body.sublist(1);
+  }
+  while (body.isNotEmpty && _doneTail.contains(body.last)) {
+    body = body.sublist(0, body.length - 1);
+  }
+  if (body.isEmpty || hasAny(body, _timerWords)) return null;
+  return MarkDone(body.join(' '), heard: sentence(t));
 }
