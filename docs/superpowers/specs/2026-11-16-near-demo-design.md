@@ -153,6 +153,8 @@ Mỗi thư mục làm một việc, và chỉ phụ thuộc vào thư mục nằ
   không đi đâu và không được ghi ra đĩa.
 - **Cắt câu:**
   - Silero VAD; im lặng 0,6 s thì coi là hết câu.
+  - VAD chỉ trả có/không cho từng khung 32 ms. Mọi luật thời gian (nói đủ 0,25 s mới tính, 0,6 s, 8 s, 4 s) nằm
+    trong một state machine thuần (`Segmenter`), test được bằng khung giả lập.
   - Một câu dài tối đa 8 s.
   - Sau 4 s mà chưa ai nói thì trả `timeout`.
 - **STT:** Zipformer-vi 30M int8, 2 luồng, `taskset -c 6,7`. Model nạp sẵn lúc khởi động, có chạy warm-up.
@@ -162,12 +164,14 @@ Mỗi thư mục làm một việc, và chỉ phụ thuộc vào thư mục nằ
     - `{"cmd":"cancel"}`
     - `{"cmd":"chime","name":"soft|alert"}`
   - Service gửi:
-    - `{"ev":"ready","model":"…"}`
+    - `{"ev":"ready","model":"…","stt":"zipformer","tts":false,"wake":"off"}` (gửi ngay khi app nối vào; model
+      đã nạp xong trước khi service mở cổng)
     - `{"ev":"listening","id":"…"}`
     - `{"ev":"level","db":-31.5}` (10 lần/giây, để vẽ thanh sóng)
     - `{"ev":"processing","id":"…"}` (đã hết câu, đang chạy STT)
-    - `{"ev":"final","id":"…","text":"…","audio_ms":1800,"stt_ms":170}`
-    - `{"ev":"timeout","id":"…"}`
+    - `{"ev":"final","id":"…","text":"…","audio_ms":1800,"stt_ms":170,"engine":"zipformer"}` (text có thể rỗng)
+    - `{"ev":"timeout","id":"…","reason":"no_speech|no_audio"}`: `no_audio` khi micro chỉ cho im lặng số (peak
+      < 64) hoặc không cho khung nào
     - `{"ev":"error","msg":"…"}`
   - Sau này có wake word thì service gửi thêm `{"ev":"wake"}`, app không phải đổi gì.
 - **Phát chuông:** file WAV ngắn phát ra card 0. Phát lỗi thì chỉ ghi log.
