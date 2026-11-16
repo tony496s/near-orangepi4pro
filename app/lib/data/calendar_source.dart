@@ -57,7 +57,11 @@ class SampleCalendarSource implements CalendarSource {
   };
 
   /// The one-off deadline of the demo ("còn mấy ngày tới hạn gửi báo giá"), at 10:00 on the first Friday after launch.
-  static const deadlineTitle = 'Hạn gửi báo giá';
+  static const deadlineTitle = 'Hạn gửi báo giá cho khách';
+
+  /// A second deadline that sounds like the first ("báo cáo" / "báo giá", demo 6), at 17:00 on the first Thursday after
+  /// launch: "xong việc gửi báo cáo cho khách" matches both halfway, so the strip asks which one.
+  static const reportTitle = 'Hạn gửi báo cáo tuần';
 
   /// Dates to remember, every month (day of month → title), shown as dots on the month view.
   static const monthMarks = {25: 'Release 1.2', 28: 'Sinh nhật mẹ'};
@@ -90,6 +94,8 @@ class SampleCalendarSource implements CalendarSource {
       }
     }
     out.add(CalendarEvent(id: 'due', title: deadlineTitle, start: deadline, end: deadline, kind: EventKind.deadline));
+    final report = DateTime(day0.year, day0.month, day0.day + (DateTime.thursday - day0.weekday + 6) % 7 + 1, 17);
+    out.add(CalendarEvent(id: 'due-report', title: reportTitle, start: report, end: report, kind: EventKind.deadline));
     return out.where((e) => !e.start.isBefore(from) && e.start.isBefore(to)).toList()
       ..sort((a, b) => a.start.compareTo(b.start));
   }

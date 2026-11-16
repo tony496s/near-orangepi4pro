@@ -142,7 +142,7 @@ void main() {
         at: DateTime(2026, 11, 19, 10), launchedAt: DateTime(2026, 11, 16, 6), columns: true);
     await h.say('tuần này anh có gì');
     expect(find.text('TUẦN NÀY · 16–22/11'), findsOneWidget);
-    expect(find.text('16 cuộc họp · 1 hạn chót'), findsOneWidget, reason: 'Monday and Tuesday are fetched too');
+    expect(find.text('16 cuộc họp · 2 hạn chót'), findsOneWidget, reason: 'Monday and Tuesday are fetched too');
     await tester.tap(find.byKey(const ValueKey('week-day-${DateTime.monday}')));
     await h.settle();
     expect(find.text('XEM NGÀY'), findsOneWidget);
@@ -419,6 +419,24 @@ void main() {
     await StripHarness.pump(tester, at: DateTime(1970, 1, 1, 0, 3));
     expect(find.text('--:--'), findsOneWidget);
     expect(find.text('ĐANG CHỜ GIỜ CHUẨN'), findsOneWidget);
+  });
+
+  testWidgets('demo 6, 14:35: "báo giá" heard as "báo cáo", the strip asks; the first option; then undo', (tester) async {
+    final h = await StripHarness.pump(tester, at: at(14, 35), launchedAt: at(6), columns: true);
+    await h.say('xong việc gửi báo cáo cho khách'); // HEARD_DONE of near-demo.html
+    expect(find.text('CHƯA CHẮC · VIỆC NÀO ĐÃ XONG?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('done-option-0')));
+    await h.settle();
+    expect(find.text('ĐÃ ĐÁNH DẤU XONG'), findsOneWidget);
+    expect(find.text('Gửi báo giá cho khách'), findsOneWidget);
+    expect(find.text('Còn lại: Gửi báo cáo tuần · Hạn thứ Năm 19/11'), findsOneWidget);
+    expect(h.c.openTasks.map((t) => t.title), isNot(contains('Gửi báo giá cho khách')));
+    await tester.tap(find.text('Hoàn tác'));
+    await h.settle();
+    expect(find.text('ĐÃ ĐÁNH DẤU XONG'), findsNothing);
+    expect(find.byKey(const Key('column-gold')), findsOneWidget, reason: 'the columns come back');
+    expect(find.text('ĐÃ HOÀN TÁC'), findsOneWidget, reason: 'the calendar column says so');
+    expect(h.c.openTasks.map((t) => t.title).take(2), ['Gửi báo cáo tuần', 'Gửi báo giá cho khách']);
   });
 
   testWidgets('the quick sample meeting is on the timeline', (tester) async {

@@ -15,8 +15,10 @@ import '../domain/intent/parser.dart';
 import '../domain/models.dart';
 import '../domain/gold_alert.dart';
 import '../domain/strip_layout.dart';
+import '../domain/tasks.dart';
 import '../domain/timer_fit.dart';
 import '../voice/voice_client.dart';
+import 'done_state.dart';
 import 'morning_brief.dart';
 import 'scheduler.dart';
 
@@ -338,6 +340,7 @@ class AppController extends ChangeNotifier {
     final l = listening;
     if (l != null && l.until != null && !t.isBefore(l.until!)) listening = null;
     if (screen != Screen.home && t.difference(_lastInteraction) >= idleReturn) screen = Screen.home;
+    _tickDone(t);
     _alerts.removeWhere((a) => t.difference(a.shownAt) >= alertTimeout);
     _expireAskFit(t);
     if (_saveFailedAt != null && t.difference(_saveFailedAt!) >= retrySaveAfter) _save();
@@ -450,6 +453,7 @@ class AppController extends ChangeNotifier {
   void run(Command c) {
     final t = now;
     _touch(t);
+    _closeDone();
     if (_askFitFirst(c, t)) return;
     switch (c) {
       case StartTimer(:final duration, :final focus):
@@ -578,6 +582,8 @@ class AppController extends ChangeNotifier {
         }
       case NotSupported(:final what):
         _show(_flash('CHƯA LÀM ĐƯỢC', what));
+      case MarkDone(:final query, :final heard):
+        _markDoneBySentence(query, heard, t);
     }
     _save();
     _notify();
@@ -600,6 +606,107 @@ class AppController extends ChangeNotifier {
     _state.reminders.add(Reminder(id: _id('r', t), text: text, at: at, createdAt: t));
     final day = sameDay(at, t) ? '' : ' ngày mai';
     _show(_flash('ĐÃ HẸN NHẮC', text, meta: '${hhmm(at)}$day · còn ${durationVi(at.difference(t))}', cool: true));
+  }
+
+  // ---------------------------------------------------------------- mark done and undo (demo 6, 14:35)
+
+  /// How long "Hoàn tác" stays after a task is marked done (the done screen goes with it).
+  static const undoFor = Duration(seconds: 8);
+
+  /// How long "Việc nào đã xong?" waits for a tap.
+  static const choiceFor = Duration(seconds: 30);
+
+  /// The whole-strip question when a sentence matched two tasks about equally; null otherwise.
+  DoneChoice? doneChoice;
+
+  /// The whole-strip done screen with its undo, for [undoFor] after a task is marked done; null otherwise.
+  DoneUndo? doneUndo;
+
+  /// Calendar deadlines marked done, by event id.
+  Set<String> get doneEvents => _state.doneEvents.keys.toSet();
+
+  /// Open notes, open reminders, and deadlines from today to two weeks ahead that are not done.
+  List<OpenTask> get openTasks =>
+      openTasksOf(notes: _state.notes, reminders: _state.reminders, plan: plan, doneEvents: doneEvents, now: now);
+
+  void _markDoneBySentence(String query, String heard, DateTime t) {
+    switch (matchTask(query, openTasks)) {
+      case TaskFound(:final task):
+        _markDone(task, t);
+      case TaskUnsure(:final options):
+        doneChoice = DoneChoice(heard: heard.isEmpty ? capitalize(query) : heard, options: options, until: t.add(choiceFor));
+        screen = Screen.home;
+        flash = null;
+      case TaskNotFound():
+        _show(_flash('KHÔNG THẤY', 'Không có việc “$query”', meta: 'Thử nói đúng tên việc'));
+    }
+  }
+
+  /// A tap on one of the two options of [doneChoice].
+  void chooseDone(OpenTask task) {
+    final t = now;
+    _touch(t);
+    if (doneChoice == null) return;
+    doneChoice = null;
+    _markDone(task, t);
+    _save();
+    _notify();
+  }
+
+  /// "Nói lại" on the choice screen: drop the question and listen again.
+  void retryDone() {
+    doneChoice = null;
+    talk();
+  }
+
+  /// "Hoàn tác": the task is open again.
+  void undoDone() {
+    final u = doneUndo;
+    final t = now;
+    _touch(t);
+    if (u == null) return;
+    doneUndo = null;
+    _setDone(u.task, null);
+    _show(_flash('ĐÃ HOÀN TÁC', u.task.title, meta: 'Vẫn còn mở · ${dueLine(u.task, t)}', cool: true));
+    _save();
+    _notify();
+  }
+
+  void _markDone(OpenTask task, DateTime t) {
+    _setDone(task, t);
+    final rest = openTasks;
+    doneUndo = DoneUndo(task: task, since: t, until: t.add(undoFor), next: rest.firstOrNull, left: rest.length);
+    screen = Screen.home; // afterwards the home screen (columns or day strip) comes back
+    flash = null;
+  }
+
+  /// Marks [task] done at [at], or open again when [at] is null.
+  void _setDone(OpenTask task, DateTime? at) {
+    switch (task.kind) {
+      case TaskKind.note:
+        final i = _state.notes.indexWhere((n) => n.id == task.id);
+        if (i >= 0) _state.notes[i] = _state.notes[i].copyWith(doneAt: () => at);
+      case TaskKind.reminder:
+        final r = _state.reminders.where((r) => r.id == task.id).firstOrNull;
+        if (r != null) _replaceReminder(r.copyWith(doneAt: () => at));
+      case TaskKind.deadline:
+        if (at == null) {
+          _state.doneEvents.remove(task.id);
+        } else {
+          _state.doneEvents[task.id] = at;
+        }
+    }
+  }
+
+  /// Any new command closes the question and the done screen (the undo goes with it).
+  void _closeDone() {
+    doneChoice = null;
+    doneUndo = null;
+  }
+
+  void _tickDone(DateTime t) {
+    if (doneChoice != null && !t.isBefore(doneChoice!.until)) doneChoice = null;
+    if (doneUndo != null && !t.isBefore(doneUndo!.until)) doneUndo = null;
   }
 
   // ---------------------------------------------------------------- touch
@@ -894,7 +1001,8 @@ class AppController extends ChangeNotifier {
   /// only counted once shown: a busy morning does not skip it and a reboot does not show it twice.
   void _checkMorningBrief(DateTime t) {
     if (!morningBriefDue(t, _state.lastBriefDay)) return;
-    if (night || focusing || alert != null || listening != null || askTime != null || askFit != null || flash != null) {
+    if (night || focusing || alert != null || listening != null || askTime != null || askFit != null || flash != null ||
+        doneChoice != null || doneUndo != null) {
       return;
     }
     if (screen != Screen.home) return;

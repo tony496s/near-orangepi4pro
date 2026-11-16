@@ -52,7 +52,7 @@ void main() {
     test('every weekday has its events; Saturday is empty, Sunday is football', () async {
       final list = await week();
       expect(on(list, 18), ['9:00 Họp đứng', '11:00 Demo khách hàng', '15:00 Phỏng vấn', '16:30 Họp nhóm']);
-      expect(on(list, 19), ['9:00 Họp đứng', '13:00 Kế hoạch quý']);
+      expect(on(list, 19), ['9:00 Họp đứng', '13:00 Kế hoạch quý', '17:00 ${SampleCalendarSource.reportTitle}']);
       expect(on(list, 20), ['9:00 Họp đứng', '10:00 ${SampleCalendarSource.deadlineTitle}', '16:00 Retro']);
       expect(on(list, 21), isEmpty);
       expect(on(list, 22), ['17:00 Đá bóng']);

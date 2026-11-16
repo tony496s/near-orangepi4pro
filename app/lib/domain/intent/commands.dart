@@ -205,3 +205,18 @@ final class NotSupported extends Command {
   const NotSupported(this.what);
   final String what;
 }
+
+/// "xong việc gửi báo giá cho khách", "đánh dấu xong gửi báo giá", "gửi báo giá xong rồi": [query] is matched against
+/// the open tasks. [heard] is the whole sentence as heard, shown when the strip has to ask which task.
+final class MarkDone extends Command {
+  const MarkDone(this.query, {this.heard = ''});
+  final String query;
+  final String heard;
+
+  @override
+  bool operator ==(Object other) => other is MarkDone && other.query == query && other.heard == heard;
+  @override
+  int get hashCode => Object.hash(query, heard);
+  @override
+  String toString() => 'MarkDone($query, heard: $heard)';
+}

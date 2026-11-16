@@ -19,9 +19,11 @@ class StoredState {
     this.layout = StripLayout.initial,
     this.goldAlert,
     this.lastBriefDay,
+    Map<String, DateTime>? doneEvents,
   })  : notes = notes ?? [],
         reminders = reminders ?? [],
-        sessions = sessions ?? [];
+        sessions = sessions ?? [],
+        doneEvents = doneEvents ?? {};
 
   final List<Note> notes;
   final List<Reminder> reminders;
@@ -42,6 +44,8 @@ class StoredState {
 
   /// "2026-11-17" once the morning brief showed by itself that day.
   String? lastBriefDay;
+  /// Calendar deadlines marked done ("xong việc gửi báo giá"): event id -> when.
+  final Map<String, DateTime> doneEvents;
 
   Map<String, Object?> toJson() => {
         'version': 1,
@@ -54,6 +58,7 @@ class StoredState {
               'layout': layout.toJson(),
         'goldAlert': goldAlert?.toJson(),
         'lastBriefDay': lastBriefDay,
+        'doneEvents': {for (final e in doneEvents.entries) e.key: e.value.toIso8601String()},
       };
 
   static StoredState fromJson(Map<String, Object?> j) {
@@ -69,6 +74,12 @@ class StoredState {
       layout: j['layout'] is Map ? StripLayout.fromJson((j['layout'] as Map).cast<String, Object?>()) : StripLayout.initial,
       goldAlert: GoldAlert.fromJson(j['goldAlert']),
       lastBriefDay: j['lastBriefDay'] as String?,
+      doneEvents: {
+        if (j['doneEvents'] is Map)
+          for (final e in (j['doneEvents'] as Map).entries)
+            if (e.value is String && DateTime.tryParse(e.value as String) != null)
+              '${e.key}': DateTime.parse(e.value as String),
+      },
     );
   }
 
@@ -77,6 +88,7 @@ class StoredState {
   void prune(DateTime now) {
     sessions.removeWhere((s) => now.difference(s.end) > const Duration(days: 14));
     reminders.removeWhere((r) => r.doneAt != null && now.difference(r.doneAt!) > const Duration(days: 7));
+    doneEvents.removeWhere((_, at) => now.difference(at) > const Duration(days: 30));
   }
 }
 
