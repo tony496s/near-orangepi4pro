@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:near_app/data/local_store.dart';
 import 'package:near_app/domain/models.dart';
+import 'package:near_app/domain/strip_layout.dart';
 
 import '../support/fakes.dart';
 
@@ -42,6 +43,14 @@ void main() {
     expect((await store.load()).voiceLang, 'en');
     expect(StoredState.fromJson({}).voiceLang, 'vi', reason: 'a state file from before the switch');
     expect(StoredState.fromJson({'voiceLang': 'fr'}).voiceLang, 'vi');
+  });
+
+  test('the home layout is kept; three columns when missing (first start)', () async {
+    final store = tempStore();
+    await store.save(sample()..layout = StripLayout.initial.single());
+    expect((await store.load()).layout, StripLayout.initial.single());
+    expect(StoredState.fromJson({}).layout, StripLayout.initial, reason: 'a state file from before the columns');
+    expect((await tempStore().load()).layout.split, isTrue, reason: 'no file at all');
   });
 
   test('serialized saves: the last one wins', () async {

@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import '../app/app_controller.dart';
 import 'screens/alert.dart';
 import 'screens/ambient.dart';
+import 'screens/columns.dart';
 import 'screens/focus.dart';
 import 'screens/night.dart';
 import 'screens/recap.dart';
@@ -63,6 +64,10 @@ class _Strip extends StatelessWidget {
         case Screen.tomorrow:
           screen = TomorrowScreen(c: c);
           key = 'tomorrow';
+        case Screen.home when c.layout.split:
+          // Timers and focus sessions show in the timer column; answers and notes in the calendar column.
+          screen = ColumnsScreen(c: c);
+          key = 'columns';
         case Screen.home:
           screen = c.focusing ? FocusScreen(c: c) : AmbientScreen(c: c);
           key = c.focusing ? 'focus' : 'ambient';

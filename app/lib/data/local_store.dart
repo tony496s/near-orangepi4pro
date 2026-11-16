@@ -1,3 +1,4 @@
+import '../domain/strip_layout.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -14,6 +15,7 @@ class StoredState {
     List<FocusSession>? sessions,
     this.lastRecapDay,
     this.voiceLang = 'vi',
+    this.layout = StripLayout.initial,
   })  : notes = notes ?? [],
         reminders = reminders ?? [],
         sessions = sessions ?? [];
@@ -29,6 +31,9 @@ class StoredState {
   /// The VI/EN switch: the language voice commands are spoken in.
   String voiceLang;
 
+  /// Home screen layout. Missing on first start, which gives the three columns.
+  StripLayout layout;
+
   Map<String, Object?> toJson() => {
         'version': 1,
         'notes': [for (final n in notes) n.toJson()],
@@ -37,6 +42,7 @@ class StoredState {
         'sessions': [for (final s in sessions) s.toJson()],
         'lastRecapDay': lastRecapDay,
         'voiceLang': voiceLang,
+              'layout': layout.toJson(),
       };
 
   static StoredState fromJson(Map<String, Object?> j) {
@@ -49,6 +55,7 @@ class StoredState {
       sessions: list('sessions').map(FocusSession.fromJson).toList(),
       lastRecapDay: j['lastRecapDay'] as String?,
       voiceLang: j['voiceLang'] == 'en' ? 'en' : 'vi',
+      layout: j['layout'] is Map ? StripLayout.fromJson((j['layout'] as Map).cast<String, Object?>()) : StripLayout.initial,
     );
   }
 

@@ -6,11 +6,13 @@ import '../core/clock.dart';
 import '../core/vi_format.dart';
 import '../data/calendar_source.dart';
 import '../data/local_store.dart';
+import '../data/price_source.dart';
 import '../domain/day_plan.dart';
 import '../domain/intent/commands.dart';
 import '../domain/intent/en_parser.dart';
 import '../domain/intent/parser.dart';
 import '../domain/models.dart';
+import '../domain/strip_layout.dart';
 import '../voice/voice_client.dart';
 import 'scheduler.dart';
 
@@ -89,6 +91,7 @@ class AppController extends ChangeNotifier {
     required this.calendar,
     this.voice,
     this.settings = const ScheduleSettings(),
+    this.prices = const SamplePriceSource(),
     this.heardHold = const Duration(milliseconds: 700),
     this.log = _print,
   }) : _lastInteraction = clock.now();
@@ -98,6 +101,7 @@ class AppController extends ChangeNotifier {
   final CalendarSource calendar;
   final VoiceLink? voice;
   final ScheduleSettings settings;
+  final PriceSource prices;
 
   /// How long the heard sentence stays on screen before the command runs.
   final Duration heardHold;
@@ -173,6 +177,23 @@ class AppController extends ChangeNotifier {
 
   /// The VI/EN switch, as saved. English goes through the cloud (Harness, Deepgram); Vietnamese stays on the board.
   String get voiceLang => _state.voiceLang;
+
+  /// Home screen: three columns (first start) or the day strip, as last chosen.
+  StripLayout get layout => _state.layout;
+
+  /// Today's gold so far (sample data in the demo). Recomputed at most once per price step.
+  PriceSeries get gold {
+    final t = now;
+    final key = t.millisecondsSinceEpoch ~/ SamplePriceSource.step.inMilliseconds;
+    if (_goldKey != key || _gold == null) {
+      _gold = prices.goldToday(t);
+      _goldKey = key;
+    }
+    return _gold!;
+  }
+
+  PriceSeries? _gold;
+  int? _goldKey;
 
   /// The service can take English right now (it has a Harness sign-in); the switch is only shown then.
   bool get englishAvailable => (voice?.ready ?? false) && _voiceLangs.contains('en');
@@ -387,6 +408,14 @@ class AppController extends ChangeNotifier {
         screen = Screen.home;
         flash = null;
         askTime = null;
+      case SplitColumns():
+        _state.layout = _state.layout.columns();
+        screen = Screen.home;
+        flash = null;
+      case SingleColumn():
+        _state.layout = _state.layout.single();
+        screen = Screen.home;
+        flash = null;
       case NotSupported(:final what):
         _show(_flash('CHƯA LÀM ĐƯỢC', what));
     }

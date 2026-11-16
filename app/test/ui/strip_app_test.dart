@@ -101,6 +101,23 @@ void main() {
     expect(h.voice.sent.where((m) => m.startsWith('listen')), hasLength(1), reason: 'only the dictation listened');
   });
 
+  testWidgets('scenario 5: first start is three columns; one column and back by voice; the timer runs in its column',
+      (tester) async {
+    final h = await StripHarness.pump(tester, at: at(13, 30), columns: true);
+    for (final k in ['column-calendar', 'column-gold', 'column-timer', 'mic']) {
+      expect(find.byKey(Key(k)), findsOneWidget, reason: k);
+    }
+    expect(find.text('BÂY GIỜ'), findsNothing, reason: 'no day strip timeline');
+    await h.say('hẹn giờ 45 phút');
+    expect(find.byKey(const Key('column-timer')), findsOneWidget, reason: 'the columns stay');
+    expect(find.text('45:00'), findsOneWidget);
+    await h.say('về một cột');
+    expect(find.byKey(const Key('column-gold')), findsNothing);
+    expect(find.text('BÂY GIỜ'), findsOneWidget, reason: 'the day strip is back');
+    await h.say('chia màn ba cột');
+    expect(find.byKey(const Key('column-gold')), findsOneWidget);
+  });
+
   testWidgets('scenario 1: focus by voice, countdown, done alert, break', (tester) async {
     final h = await StripHarness.pump(tester, at: at(9, 20));
     await h.say('HẸN GIỜ HAI MƯƠI LĂM PHÚT ĐỂ TẬP TRUNG');

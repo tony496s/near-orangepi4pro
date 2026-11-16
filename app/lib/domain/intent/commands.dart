@@ -84,6 +84,16 @@ final class GoHome extends Command {
   const GoHome();
 }
 
+/// "chia màn ba cột": the columns become the home screen (the remembered set).
+final class SplitColumns extends Command {
+  const SplitColumns();
+}
+
+/// "về một cột": the day strip becomes the home screen; the column set is kept for next time.
+final class SingleColumn extends Command {
+  const SingleColumn();
+}
+
 /// Understood, but not something the strip can do yet ("dời cuộc họp …"). [what] is shown to the user.
 final class NotSupported extends Command {
   const NotSupported(this.what);

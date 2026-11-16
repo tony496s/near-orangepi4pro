@@ -101,6 +101,17 @@ void main() {
       expect(p('hẹn giờ'), isNull, reason: 'no duration');
     });
 
+    test('home layout: three columns or one', () {
+      expect(p('chia màn ba cột: lịch, giá vàng, hẹn giờ'), isA<SplitColumns>(), reason: '"hẹn giờ" in the list is a column');
+      expect(p('CHIA MÀN BA CỘT LỊCH GIÁ VÀNG HẸN GIỜ'), isA<SplitColumns>());
+      expect(p('mở ba cột'), isA<SplitColumns>());
+      expect(p('về một cột'), isA<SingleColumn>(), reason: 'not "về" = go home');
+      expect(p('VỀ MỘT CỘT'), isA<SingleColumn>());
+      expect(p('về dải ngày'), isA<SingleColumn>());
+      expect(p('quay lại'), isA<GoHome>());
+      expect(p('hẹn giờ 45 phút'), const StartTimer(Duration(minutes: 45), focus: false));
+    });
+
     test('views', () {
       expect(p('tổng kết hôm nay'), isA<ShowRecap>());
       expect(p('hôm nay thế nào'), isA<ShowRecap>());

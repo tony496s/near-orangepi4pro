@@ -12,6 +12,7 @@ Command? parseCommand(String text, DateTime now) {
   return _note(t) ??
       _reminder(t, now) ??
       _screen(t) ??
+      _layout(t) ??
       _unsupported(t) ??
       _cancelTimer(t) ??
       _timeLeft(t) ??
@@ -107,6 +108,14 @@ Command? _reminder(List<String> t, DateTime now) {
 Command? _screen(List<String> t) {
   if (hasAny(t, ['tắt màn', 'chế độ đêm', 'đi ngủ', 'chúc ngủ ngon'])) return const ScreenOff();
   if (hasAny(t, ['bật màn', 'mở màn', 'sáng màn'])) return const ScreenOn();
+  return null;
+}
+
+/// "chia màn ba cột (lịch, giá vàng, hẹn giờ)", "mở ba cột", "về một cột", "về dải ngày". Checked before "về" alone
+/// (go home) and before the timer rule, which would take "hẹn giờ" inside the list of columns.
+Command? _layout(List<String> t) {
+  if (hasAny(t, ['một cột', '1 cột', 'dải ngày', 'bỏ chia', 'gộp cột'])) return const SingleColumn();
+  if (hasAny(t, ['chia màn', 'chia cột', 'ba cột', '3 cột', 'hai cột', '2 cột', 'nhiều cột'])) return const SplitColumns();
   return null;
 }
 

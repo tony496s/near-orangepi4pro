@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:near_app/app/app_controller.dart';
 import 'package:near_app/core/clock.dart';
 import 'package:near_app/data/local_store.dart';
+import 'package:near_app/domain/strip_layout.dart';
 import 'package:near_app/domain/intent/commands.dart';
 import 'package:near_app/voice/voice_client.dart';
 
@@ -43,6 +44,32 @@ void main() {
     voice.emit(VoiceProcessing(id));
     voice.emit(VoiceFinal(id, text, sttMs: 170));
   }
+
+  group('home layout (scenario 5)', () {
+    test('first start is three columns; "về một cột" and "ba cột" switch and survive a restart', () async {
+      await make();
+      expect(c.layout, StripLayout.initial);
+      say('VỀ MỘT CỘT');
+      expect(c.layout.split, isFalse);
+      expect(c.screen, Screen.home);
+      await store.idle;
+      await make(withStore: store);
+      expect(c.layout.split, isFalse, reason: 'remembered after a reboot');
+      say('CHIA MÀN BA CỘT LỊCH GIÁ VÀNG HẸN GIỜ');
+      expect(c.layout, StripLayout.initial);
+      expect(c.timer, isNull, reason: '"hẹn giờ" in the list of columns starts no timer');
+      await store.idle;
+      await make(withStore: store);
+      expect(c.layout.split, isTrue);
+    });
+
+    test('gold comes from the price source for today, up to now', () async {
+      await make();
+      expect(c.gold.points.last.at, day.add(const Duration(hours: 9, minutes: 20)));
+      run(const Duration(minutes: 5));
+      expect(c.gold.points.last.at, day.add(const Duration(hours: 9, minutes: 25)), reason: 'refreshed every step');
+    });
+  });
 
   group('scenario 1: keeping the morning rhythm', () {
     test('a spoken focus session runs, ends with an alert and a chime, and offers a break', () async {
