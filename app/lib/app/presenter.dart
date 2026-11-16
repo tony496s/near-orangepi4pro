@@ -125,6 +125,10 @@ AlertText alertText(AppController c, Alert a) {
             done: true);
       }
       return AlertText('HẾT GIỜ', 'Hết ${durationVi(timer.duration)}', after, 'Thêm 5 phút', 'Xong', done: true);
+    case GoldCrossedAlert(:final rule, :final price):
+      return AlertText('VÀNG ${rule.above ? 'VƯỢT' : 'XUỐNG DƯỚI'} ${viPrice(rule.threshold)} ĐÔ', 'Giá bây giờ ${viNumber(price)}',
+          'Đặt lúc ${hhmm(rule.setAt)} · số liệu mẫu', 'Xem chart', 'Tắt báo',
+          done: false);
     case ReminderAlert(:final reminder):
       return AlertText('NHẮC VIỆC · ${hhmm(reminder.at)}', reminder.text, 'Hẹn lúc ${hhmm(reminder.createdAt)} bằng giọng nói',
           'Xong', '10 phút nữa',

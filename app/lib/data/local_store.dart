@@ -1,3 +1,4 @@
+import '../domain/gold_alert.dart';
 import '../domain/strip_layout.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -16,6 +17,7 @@ class StoredState {
     this.lastRecapDay,
     this.voiceLang = 'vi',
     this.layout = StripLayout.initial,
+    this.goldAlert,
   })  : notes = notes ?? [],
         reminders = reminders ?? [],
         sessions = sessions ?? [];
@@ -34,6 +36,9 @@ class StoredState {
   /// Home screen layout. Missing on first start, which gives the three columns.
   StripLayout layout;
 
+  /// "báo anh khi vàng vượt …", kept until it fires and is closed, or replaced.
+  GoldAlert? goldAlert;
+
   Map<String, Object?> toJson() => {
         'version': 1,
         'notes': [for (final n in notes) n.toJson()],
@@ -43,6 +48,7 @@ class StoredState {
         'lastRecapDay': lastRecapDay,
         'voiceLang': voiceLang,
               'layout': layout.toJson(),
+        'goldAlert': goldAlert?.toJson(),
       };
 
   static StoredState fromJson(Map<String, Object?> j) {
@@ -56,6 +62,7 @@ class StoredState {
       lastRecapDay: j['lastRecapDay'] as String?,
       voiceLang: j['voiceLang'] == 'en' ? 'en' : 'vi',
       layout: j['layout'] is Map ? StripLayout.fromJson((j['layout'] as Map).cast<String, Object?>()) : StripLayout.initial,
+      goldAlert: GoldAlert.fromJson(j['goldAlert']),
     );
   }
 

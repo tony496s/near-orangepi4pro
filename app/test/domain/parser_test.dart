@@ -112,6 +112,42 @@ void main() {
       expect(p('hẹn giờ 45 phút'), const StartTimer(Duration(minutes: 45), focus: false));
     });
 
+    test('gold (scenario 3)', () {
+      expect(p('mở chart vàng sáng nay'), isA<ShowGold>());
+      expect(p('MỞ CHÁT VÀNG'), isA<ShowGold>(), reason: 'Zipformer spelling');
+      expect(p('mở biểu đồ vàng'), isA<ShowGold>());
+      expect(p('so với hôm qua thì sao'), isA<CompareGoldYesterday>());
+      expect(p('báo anh khi vàng vượt 4.150 đô'), const SetGoldAlert(4150));
+      expect(p('BÁO ANH KHI VÀNG VƯỢT BỐN NGHÌN MỘT TRĂM NĂM MƯƠI ĐÔ'), const SetGoldAlert(4150));
+      expect(p('báo khi vàng xuống dưới 4100'), const SetGoldAlert(4100));
+      expect(p('ghi lại mua vàng cho mẹ'), isA<AddNote>(), reason: 'a note keeps its words');
+    });
+
+    test('week and month (scenario 4)', () {
+      expect(p('tuần này anh có gì'), isA<ShowWeek>());
+      expect(p('TUẦN NÀY ANH CÓ GÌ'), isA<ShowWeek>());
+      expect(p('thứ năm rảnh lúc nào'), const FreeSlots(DateTime.thursday));
+      expect(p('THỨ SÁU RẢNH LÚC NÀO'), const FreeSlots(DateTime.friday));
+      expect(p('mở lịch tháng này'), isA<ShowMonth>());
+      expect(p('còn mấy ngày tới hạn gửi báo giá'), const DaysUntil('gửi báo giá'));
+      expect(p('CÒN MẤY NGÀY NỮA ĐẾN HẠN GỬI BÁO GIÁ'), const DaysUntil('gửi báo giá'));
+      expect(p('lịch chiều nay có gì'), isA<WhatsNext>(), reason: 'today is still "what is next"');
+      expect(p('nhắc anh gọi chị Lan thứ năm'), isNot(isA<FreeSlots>()));
+    });
+
+    test('busy at a time: "sáu giờ chiều nay có họp không"', () {
+      // now is 14:12 on Monday 16/11
+      expect(p('SÁU GIỜ CHIỀU NAY CÓ HỌP KHÔNG'), BusyAt(DateTime(2026, 11, 16, 18)));
+      expect(p('3 giờ có lịch gì không'), BusyAt(DateTime(2026, 11, 16, 15)));
+      expect(p('mai 9 giờ có bận không'), BusyAt(DateTime(2026, 11, 17, 9)));
+      expect(p('chín giờ sáng mai có họp không'), BusyAt(DateTime(2026, 11, 17, 9)));
+      expect(p('sáu giờ sáng nay có họp không'), BusyAt(DateTime(2026, 11, 16, 6)), reason: 'this morning, not tomorrow');
+      expect(p('thứ năm 3 giờ rảnh không'), isNot(isA<BusyAt>()), reason: 'a weekday is not today');
+      expect(p('chiều nay có họp không'), isNot(isA<BusyAt>()), reason: 'no clock time');
+      expect(p('nhắc anh 3 giờ chiều xem có họp không'), isA<AddReminder>(), reason: 'reminders come first');
+      expect(p('có hẹn giờ nào không'), isNot(isA<BusyAt>()));
+    });
+
     test('views', () {
       expect(p('tổng kết hôm nay'), isA<ShowRecap>());
       expect(p('hôm nay thế nào'), isA<ShowRecap>());

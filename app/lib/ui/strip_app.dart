@@ -6,9 +6,12 @@ import 'screens/alert.dart';
 import 'screens/ambient.dart';
 import 'screens/columns.dart';
 import 'screens/focus.dart';
+import 'screens/gold.dart';
+import 'screens/month.dart';
 import 'screens/night.dart';
 import 'screens/recap.dart';
 import 'screens/tomorrow.dart';
+import 'screens/week.dart';
 import 'theme.dart';
 import 'widgets/buttons.dart';
 import 'widgets/overlays.dart';
@@ -64,6 +67,18 @@ class _Strip extends StatelessWidget {
         case Screen.tomorrow:
           screen = TomorrowScreen(c: c);
           key = 'tomorrow';
+        case Screen.gold:
+          screen = GoldScreen(c: c);
+          key = 'gold';
+        case Screen.week:
+          screen = WeekScreen(c: c, onOpenDay: c.openWeekDay);
+          key = 'week';
+        case Screen.day:
+          screen = DayScreen(c: c);
+          key = 'day';
+        case Screen.month:
+          screen = MonthScreen(c: c);
+          key = 'month';
         case Screen.home when c.layout.split:
           // Timers and focus sessions show in the timer column; answers and notes in the calendar column.
           screen = ColumnsScreen(c: c);
@@ -79,10 +94,12 @@ class _Strip extends StatelessWidget {
       child: RawGestureDetector(
         behavior: HitTestBehavior.opaque,
         gestures: {
-          LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
-            () => LongPressGestureRecognizer(duration: const Duration(milliseconds: 400)),
-            (r) => r.onLongPress = c.talk,
-          ),
+          // On the columns a long press zooms a column (ColumnsScreen); talking there is by the mic button.
+          if (key != 'columns')
+            LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+              () => LongPressGestureRecognizer(duration: const Duration(milliseconds: 400)),
+              (r) => r.onLongPress = c.talk,
+            ),
           VerticalDragGestureRecognizer: GestureRecognizerFactoryWithHandlers<VerticalDragGestureRecognizer>(
             VerticalDragGestureRecognizer.new,
             (r) => r.onEnd = (d) {

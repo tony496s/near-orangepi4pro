@@ -1,4 +1,6 @@
+import '../../core/clock.dart' show sameDay;
 import 'commands.dart';
+import 'vi_numbers.dart';
 import 'vi_text.dart';
 import 'vi_time.dart';
 
@@ -13,6 +15,8 @@ Command? parseCommand(String text, DateTime now) {
       _reminder(t, now) ??
       _screen(t) ??
       _layout(t) ??
+      _gold(t) ??
+      _calendar(t, now) ??
       _unsupported(t) ??
       _cancelTimer(t) ??
       _timeLeft(t) ??
@@ -116,6 +120,84 @@ Command? _screen(List<String> t) {
 Command? _layout(List<String> t) {
   if (hasAny(t, ['một cột', '1 cột', 'dải ngày', 'bỏ chia', 'gộp cột'])) return const SingleColumn();
   if (hasAny(t, ['chia màn', 'chia cột', 'ba cột', '3 cột', 'hai cột', '2 cột', 'nhiều cột'])) return const SplitColumns();
+  return null;
+}
+
+/// "mở chart vàng" (Zipformer may write "chát"), "so với hôm qua thì sao", "báo anh khi vàng vượt 4.150 đô".
+Command? _gold(List<String> t) {
+  final gold = hasPhrase(t, 'vàng');
+  if (gold && hasAny(t, ['báo', 'canh'])) {
+    for (var i = 0; i < t.length; i++) {
+      if (!const {'vượt', 'qua', 'quá', 'lên', 'tới', 'dưới', 'xuống'}.contains(t[i])) continue;
+      var j = i + 1;
+      while (j < t.length && const {'qua', 'quá', 'mức', 'ngưỡng', 'lên', 'tới', 'dưới', 'xuống'}.contains(t[j])) {
+        j++;
+      }
+      final n = readNumber(t, j);
+      if (n != null && n.value >= 1000) return SetGoldAlert(n.value.toDouble());
+    }
+  }
+  if (hasAny(t, ['so với hôm qua', 'so hôm qua', 'hôm qua thì sao', 'hôm qua thế nào', 'hôm qua ra sao'])) {
+    return const CompareGoldYesterday();
+  }
+  if (gold && hasAny(t, ['chart', 'chát', 'chạt', 'biểu đồ', 'đồ thị', 'giá vàng', 'mở vàng', 'xem vàng'])) {
+    return const ShowGold();
+  }
+  return null;
+}
+
+const _weekdays = {
+  'thứ hai': DateTime.monday, 'thứ 2': DateTime.monday,
+  'thứ ba': DateTime.tuesday, 'thứ 3': DateTime.tuesday,
+  'thứ tư': DateTime.wednesday, 'thứ 4': DateTime.wednesday,
+  'thứ năm': DateTime.thursday, 'thứ 5': DateTime.thursday,
+  'thứ sáu': DateTime.friday, 'thứ 6': DateTime.friday,
+  'thứ bảy': DateTime.saturday, 'thứ 7': DateTime.saturday,
+  'chủ nhật': DateTime.sunday,
+};
+
+/// "tuần này có gì", "thứ năm rảnh lúc nào", "mở lịch tháng này", "còn mấy ngày tới hạn gửi báo giá",
+/// "sáu giờ chiều nay có họp không".
+Command? _calendar(List<String> t, DateTime now) {
+  final busy = _busyAt(t, now);
+  if (busy != null) return busy;
+  if (hasAny(t, ['còn mấy ngày', 'còn bao nhiêu ngày', 'mấy ngày nữa', 'bao nhiêu ngày nữa'])) {
+    for (final w in const ['tới hạn', 'đến hạn', 'tới', 'đến', 'hạn']) {
+      final k = indexOfPhrase(t, w.split(' '));
+      if (k < 0) continue;
+      final q = t.sublist(k + w.split(' ').length).where((x) => !const {'nữa', 'là', 'không', 'vậy', 'ạ'}.contains(x));
+      if (q.isNotEmpty) return DaysUntil(q.join(' '));
+    }
+    return null;
+  }
+  if (hasAny(t, ['rảnh', 'trống lịch', 'lúc nào trống'])) {
+    for (final MapEntry(:key, :value) in _weekdays.entries) {
+      if (hasPhrase(t, key)) return FreeSlots(value);
+    }
+  }
+  if (hasAny(t, ['lịch tháng', 'tháng này'])) return const ShowMonth();
+  if (hasAny(t, ['tuần này', 'lịch tuần', 'cả tuần'])) return const ShowWeek();
+  return null;
+}
+
+const _busyWords = [
+  'có họp', 'có cuộc họp', 'có lịch', 'có hẹn', 'có bận', 'bận không', 'rảnh không', 'có rảnh', 'có gì', 'có việc',
+];
+
+/// "sáu giờ chiều nay có họp không", "3 giờ có lịch gì không", "mai 9 giờ có bận không". Not with a weekday ("thứ năm
+/// rảnh lúc nào" is [FreeSlots]) and not for timers ("có hẹn giờ nào không" has no clock time).
+Command? _busyAt(List<String> t, DateTime now) {
+  if (!hasAny(t, _busyWords)) return null;
+  if (_weekdays.keys.any((k) => hasPhrase(t, k))) return null;
+  for (var i = 0; i < t.length; i++) {
+    final c = readClockTime(t, i);
+    if (c == null) continue;
+    final tomorrow = hasAny(t, ['ngày mai', 'sáng mai', 'chiều mai', 'tối mai', 'mai']);
+    var at = resolveClockTime(c, now, tomorrow: tomorrow);
+    // "sáu giờ sáng nay" asked in the afternoon is about this morning, not tomorrow's.
+    if (!tomorrow && hasPhrase(t, 'nay') && !sameDay(at, now)) at = at.subtract(const Duration(days: 1));
+    return BusyAt(at);
+  }
   return null;
 }
 

@@ -118,6 +118,40 @@ void main() {
     expect(find.byKey(const Key('column-gold')), findsOneWidget);
   });
 
+  testWidgets('scenario 5: on the columns a hold zooms instead of talking; the mic still talks; gold opens its chart',
+      (tester) async {
+    final h = await StripHarness.pump(tester, at: at(13, 30), columns: true);
+    await tester.longPress(find.byKey(const Key('column-touch-calendar')));
+    await h.settle();
+    expect(h.voice.sent.where((m) => m.startsWith('listen')), isEmpty, reason: 'no listening from a hold here');
+    expect(find.byKey(const Key('column-edge-gold')), findsOneWidget, reason: 'zoomed instead');
+    await tester.tap(find.byKey(const Key('column-touch-calendar')));
+    await h.settle();
+    await h.say('xem giá vàng');
+    expect(find.byKey(const Key('gold-screen')), findsOneWidget, reason: 'the mic still talks');
+    await h.run(AppController.idleReturn);
+    expect(find.byKey(const Key('column-gold')), findsOneWidget, reason: 'back to the columns after a minute');
+    await tester.tap(find.byKey(const Key('column-touch-gold')));
+    await h.settle();
+    expect(find.byKey(const Key('gold-screen')), findsOneWidget, reason: 'a tap on the gold column');
+  });
+
+  testWidgets('scenario 4 on a Thursday: the week from Monday, a tapped day, the whole month', (tester) async {
+    final h = await StripHarness.pump(tester,
+        at: DateTime(2026, 11, 19, 10), launchedAt: DateTime(2026, 11, 16, 6), columns: true);
+    await h.say('tuần này anh có gì');
+    expect(find.text('TUẦN NÀY · 16–22/11'), findsOneWidget);
+    expect(find.text('16 cuộc họp · 1 hạn chót'), findsOneWidget, reason: 'Monday and Tuesday are fetched too');
+    await tester.tap(find.byKey(const ValueKey('week-day-${DateTime.monday}')));
+    await h.settle();
+    expect(find.text('XEM NGÀY'), findsOneWidget);
+    expect(find.text('Thứ Hai 16/11'), findsOneWidget);
+    await h.say('mở lịch tháng này');
+    expect(find.textContaining('28 Sinh nhật mẹ'), findsOneWidget, reason: 'the month is fetched to its end');
+    await h.run(AppController.idleReturn);
+    expect(find.byKey(const Key('column-gold')), findsOneWidget, reason: 'back to the columns after a minute');
+  });
+
   testWidgets('scenario 1: focus by voice, countdown, done alert, break', (tester) async {
     final h = await StripHarness.pump(tester, at: at(9, 20));
     await h.say('HẸN GIỜ HAI MƯƠI LĂM PHÚT ĐỂ TẬP TRUNG');

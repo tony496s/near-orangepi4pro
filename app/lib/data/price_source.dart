@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 /// Gold price for the strip. The demo uses [SamplePriceSource]; v1 swaps in a real feed behind [PriceSource].
 class PricePoint {
   const PricePoint(this.at, this.price);
@@ -21,6 +23,9 @@ class PriceSeries {
 abstract interface class PriceSource {
   /// World gold, USD per ounce, for the day of [now], every 5 minutes up to [now].
   PriceSeries goldToday(DateTime now);
+
+  /// The whole of [day] (for "so với hôm qua").
+  PriceSeries goldDay(DateTime day);
 }
 
 /// Made-up prices that look plausible at any hour: a random walk seeded by the date, so the same day always gives the
@@ -28,7 +33,12 @@ abstract interface class PriceSource {
 class SamplePriceSource implements PriceSource {
   const SamplePriceSource();
 
+  static double _round(double v) => (v * 10).roundToDouble() / 10;
+
   static const step = Duration(minutes: 5);
+
+  @override
+  PriceSeries goldDay(DateTime day) => goldToday(DateTime(day.year, day.month, day.day, 23, 59));
 
   @override
   PriceSeries goldToday(DateTime now) {
@@ -43,8 +53,18 @@ class SamplePriceSource implements PriceSource {
     var price = 4100 + next() * 40;
     final points = <PricePoint>[];
     for (var i = 0; i <= n; i++) {
-      points.add(PricePoint(day.add(step * i), (price * 10).roundToDouble() / 10));
+      points.add(PricePoint(day.add(step * i), _round(price)));
       price += (next() - .45) * 1.6; // a slow upward drift with noise, about +30 over a day
+    }
+    // Between two steps the latest price keeps moving: on its way to the next step, plus a slow swing of a few
+    // dollars, so a threshold set just above the price is crossed within minutes (spec section 8).
+    final last = points.last;
+    final into = now.difference(last.at);
+    if (into > Duration.zero) {
+      final frac = into.inMilliseconds / step.inMilliseconds;
+      final secs = now.difference(day).inMilliseconds / 1000;
+      final live = last.price + (price - last.price) * frac + 3 * math.sin(2 * math.pi * secs / 120);
+      points.add(PricePoint(now, _round(live)));
     }
     return PriceSeries(points);
   }

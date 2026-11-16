@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:near_app/core/vi_format.dart';
 import 'package:near_app/app/app_controller.dart';
 import 'package:near_app/core/clock.dart';
 import 'package:near_app/data/calendar_source.dart';
@@ -83,5 +84,52 @@ void main() {
       expect(r.width, greaterThan(300), reason: k);
     }
     expect(tester.takeException(), isNull, reason: 'no overflow');
+  });
+
+  testWidgets('hold a column to zoom it; the others shrink to a glanceable edge; tap to zoom back', (tester) async {
+    final c = await pump(tester, day.add(const Duration(hours: 13, minutes: 30)));
+    c.run(const StartTimer(Duration(minutes: 45), focus: false));
+    await tester.pump();
+    await tester.longPress(find.byKey(const Key('column-touch-gold')));
+    await tester.pump();
+    final gold = tester.getRect(find.byKey(const Key('column-gold')));
+    expect(gold.width, greaterThan(900), reason: 'the zoomed column takes the room');
+    expect(gold.right, lessThanOrEqualTo(1360));
+    expect(find.byKey(const Key('column-calendar')), findsNothing);
+    expect(find.byKey(const Key('column-edge-calendar')), findsOneWidget);
+    expect(find.text('GIỜ'), findsOneWidget);
+    expect(find.byKey(const Key('column-edge-timer')), findsOneWidget);
+    expect(find.text('45:00'), findsOneWidget, reason: 'the shrunk timer still counts down');
+    expect(c.screen, Screen.home, reason: 'a hold zooms; it does not open the chart');
+    expect(tester.takeException(), isNull, reason: 'no overflow');
+
+    await tester.tap(find.byKey(const Key('column-touch-timer')));
+    await tester.pump();
+    expect(find.byKey(const Key('column-calendar')), findsOneWidget, reason: 'tap anywhere zooms back');
+    expect(find.byKey(const Key('column-edge-timer')), findsNothing);
+    expect(c.screen, Screen.home, reason: 'the tap only zoomed back');
+  });
+
+  testWidgets('hold the zoomed column again to zoom back', (tester) async {
+    await pump(tester, day.add(const Duration(hours: 9)));
+    await tester.longPress(find.byKey(const Key('column-touch-timer')));
+    await tester.pump();
+    expect(find.byKey(const Key('column-edge-gold')), findsOneWidget);
+    await tester.longPress(find.byKey(const Key('column-touch-timer')));
+    await tester.pump();
+    expect(find.byKey(const Key('column-edge-gold')), findsNothing);
+    expect(find.byKey(const Key('column-gold')), findsOneWidget);
+  });
+
+  testWidgets('a tap on the gold column opens the chart; taps on the others do not', (tester) async {
+    final c = await pump(tester, day.add(const Duration(hours: 9)));
+    await tester.tap(find.byKey(const Key('column-touch-calendar')));
+    await tester.tap(find.byKey(const Key('column-touch-timer')));
+    await tester.pump();
+    expect(c.screen, Screen.home);
+    await tester.tap(find.byKey(const Key('column-touch-gold')));
+    await tester.pump();
+    expect(c.screen, Screen.gold);
+    expect(c.goldCompare, isFalse);
   });
 }

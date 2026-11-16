@@ -5,45 +5,73 @@ import 'package:flutter/widgets.dart';
 import '../../app/app_controller.dart';
 import '../../app/presenter.dart';
 import '../../core/vi_format.dart';
+import '../../domain/intent/commands.dart';
 import '../../domain/strip_layout.dart';
 import '../theme.dart';
 import '../widgets/line_chart.dart';
 import '../widgets/sky.dart';
 
-/// Vietnamese number: '.' between thousands, ',' before decimals ("4.146,2").
-String viNumber(double v, {int decimals = 1}) {
-  final fixed = v.abs().toStringAsFixed(decimals);
-  final parts = fixed.split('.');
-  final whole = parts[0];
-  final grouped = StringBuffer();
-  for (var i = 0; i < whole.length; i++) {
-    if (i > 0 && (whole.length - i) % 3 == 0) grouped.write('.');
-    grouped.write(whole[i]);
-  }
-  final sign = v < 0 && double.parse(fixed) != 0 ? '-' : '';
-  return parts.length > 1 ? '$sign$grouped,${parts[1]}' : '$sign$grouped';
-}
-
 /// The split home screen (scenario 5 of near-demo.html): one panel per column of [AppController.layout], across
 /// x 0..[columnsRight]. The strip right of that, under the mic and the VI/EN switch, stays empty.
-class ColumnsScreen extends StatelessWidget {
+///
+/// Touch: hold a column to zoom it (the others shrink to an edge that still shows the time, price or countdown); tap
+/// to zoom back. A tap on the gold column opens the full chart. Talking is by the mic button only here: the strip's
+/// own long press is off on this screen.
+class ColumnsScreen extends StatefulWidget {
   const ColumnsScreen({super.key, required this.c});
   final AppController c;
 
   static const columnsRight = stripWidth - micZoneWidth;
 
+  /// Width of a column shrunk next to a zoomed one.
+  static const edgeWidth = 132.0;
+
+  @override
+  State<ColumnsScreen> createState() => _ColumnsScreenState();
+}
+
+class _ColumnsScreenState extends State<ColumnsScreen> {
+  int? _zoomed;
+
+  AppController get c => widget.c;
+
+  void _hold(int i) {
+    c.touched();
+    setState(() => _zoomed = _zoomed == i ? null : i);
+  }
+
+  void _tap(int i, Panel p) {
+    c.touched();
+    if (_zoomed != null) {
+      setState(() => _zoomed = null);
+    } else if (p == Panel.gold) {
+      c.run(const ShowGold());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final now = c.now;
     final panels = c.layout.panels;
+    final zoomed = _zoomed != null && _zoomed! < panels.length ? _zoomed : null;
     final children = <Widget>[];
     for (var i = 0; i < panels.length; i++) {
       if (i > 0) children.add(Container(width: 1, margin: const EdgeInsets.symmetric(vertical: 28), color: Ink.hair));
-      children.add(Expanded(child: _panel(panels[i])));
+      final p = panels[i];
+      final body = GestureDetector(
+        key: Key('column-touch-${p.name}'),
+        behavior: HitTestBehavior.opaque,
+        onLongPress: () => _hold(i),
+        onTap: () => _tap(i, p),
+        child: zoomed == null || zoomed == i ? _panel(p) : _edge(p),
+      );
+      children.add(zoomed == null || zoomed == i
+          ? Expanded(child: body)
+          : SizedBox(width: ColumnsScreen.edgeWidth, child: body));
     }
     return Sky(
       kind: SkyKind.at(now),
-      glowX: columnsRight / 2,
+      glowX: ColumnsScreen.columnsRight / 2,
       child: Padding(
         padding: const EdgeInsets.only(right: micZoneWidth),
         child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
@@ -52,10 +80,35 @@ class ColumnsScreen extends StatelessWidget {
   }
 
   Widget _panel(Panel p) => switch (p) {
-    Panel.calendar => CalendarPanel(key: const Key('column-calendar'), c: c),
-    Panel.gold => GoldPanel(key: const Key('column-gold'), c: c),
-    Panel.timer => TimerPanel(key: const Key('column-timer'), c: c),
-  };
+        Panel.calendar => CalendarPanel(key: const Key('column-calendar'), c: c),
+        Panel.gold => GoldPanel(key: const Key('column-gold'), c: c),
+        Panel.timer => TimerPanel(key: const Key('column-timer'), c: c),
+      };
+
+  /// A shrunk column: one glanceable value.
+  Widget _edge(Panel p) {
+    final now = c.now;
+    final timer = c.timer;
+    final (label, value) = switch (p) {
+      Panel.calendar => ('GIỜ', c.clockValid ? hhmm(now) : '--:--'),
+      Panel.gold => ('VÀNG', viNumber(c.gold.last, decimals: 0)),
+      Panel.timer => (
+          timer != null && timer.focus ? 'TẬP TRUNG' : 'HẸN GIỜ',
+          timer == null || timer.isDone(now) ? '—' : mmss(timer.remaining(now))
+        ),
+    };
+    return Center(
+      key: Key('column-edge-${p.name}'),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: eyebrow(color: p == Panel.gold ? Ink.hot : Ink.cool)),
+          const SizedBox(height: 8),
+          Text(value, style: ts(28, weight: FontWeight.w400)),
+        ],
+      ),
+    );
+  }
 }
 
 const _pad = EdgeInsets.fromLTRB(40, 26, 32, 24);

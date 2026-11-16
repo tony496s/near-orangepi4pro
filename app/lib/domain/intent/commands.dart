@@ -94,7 +94,75 @@ final class SingleColumn extends Command {
   const SingleColumn();
 }
 
+/// "mở chart vàng": the full gold chart.
+final class ShowGold extends Command {
+  const ShowGold();
+}
+
+/// "so với hôm qua thì sao" (on the gold chart): yesterday's line on the same axis.
+final class CompareGoldYesterday extends Command {
+  const CompareGoldYesterday();
+}
+
+/// "báo anh khi vàng vượt 4.150 đô".
+final class SetGoldAlert extends Command {
+  const SetGoldAlert(this.price);
+  final double price;
+
+  @override
+  bool operator ==(Object other) => other is SetGoldAlert && other.price == price;
+  @override
+  int get hashCode => price.hashCode;
+}
+
+/// "tuần này có gì".
+final class ShowWeek extends Command {
+  const ShowWeek();
+}
+
+/// "thứ năm rảnh lúc nào": [weekday] is DateTime.monday..sunday.
+final class FreeSlots extends Command {
+  const FreeSlots(this.weekday);
+  final int weekday;
+
+  @override
+  bool operator ==(Object other) => other is FreeSlots && other.weekday == weekday;
+  @override
+  int get hashCode => weekday.hashCode;
+}
+
+/// "mở lịch tháng này".
+final class ShowMonth extends Command {
+  const ShowMonth();
+}
+
+/// "còn mấy ngày tới hạn gửi báo giá": [query] is matched against event titles.
+final class DaysUntil extends Command {
+  const DaysUntil(this.query);
+  final String query;
+
+  @override
+  bool operator ==(Object other) => other is DaysUntil && other.query == query;
+  @override
+  int get hashCode => query.hashCode;
+}
+
 /// Understood, but not something the strip can do yet ("dời cuộc họp …"). [what] is shown to the user.
+/// "sáu giờ chiều nay có họp không": what is on around [at] (that hour).
+final class BusyAt extends Command {
+  const BusyAt(this.at);
+  final DateTime at;
+
+  @override
+  bool operator ==(Object other) => other is BusyAt && other.at == at;
+
+  @override
+  int get hashCode => at.hashCode;
+
+  @override
+  String toString() => 'BusyAt($at)';
+}
+
 final class NotSupported extends Command {
   const NotSupported(this.what);
   final String what;

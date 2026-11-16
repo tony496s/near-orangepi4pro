@@ -12,6 +12,7 @@ void main() {
   final day = DateTime(2026, 11, 16);
   final events = [
     ev('stand', 'Họp đứng', day.add(const Duration(hours: 9)), 15),
+    ev('quote', 'Hạn gửi báo giá', day.add(const Duration(days: 4, hours: 10)), 0),
     ev('design', 'Họp thiết kế', day.add(const Duration(hours: 10, minutes: 30)), 75),
   ];
 
@@ -68,6 +69,85 @@ void main() {
       expect(c.gold.points.last.at, day.add(const Duration(hours: 9, minutes: 20)));
       run(const Duration(minutes: 5));
       expect(c.gold.points.last.at, day.add(const Duration(hours: 9, minutes: 25)), reason: 'refreshed every step');
+    });
+  });
+
+  group('gold (scenario 3)', () {
+    test('an alert just above the price fires once, within minutes, with a chime; "Xem chart" opens the chart', () async {
+      await make();
+      say('MỞ CHÁT VÀNG');
+      expect(c.screen, Screen.gold);
+      say('SO VỚI HÔM QUA THÌ SAO');
+      expect(c.goldCompare, isTrue);
+      final threshold = (c.gold.last + 2).roundToDouble();
+      c.run(SetGoldAlert(threshold));
+      expect(c.flash!.eyebrow, 'ĐÃ ĐẶT BÁO GIÁ');
+      expect(c.goldAlert!.above, isTrue);
+      for (var i = 0; i < 300 && c.alert == null; i++) {
+        run(const Duration(seconds: 1));
+      }
+      final a = c.alert;
+      expect(a, isA<GoldCrossedAlert>(), reason: 'crossed within 5 minutes');
+      expect((a as GoldCrossedAlert).price, greaterThanOrEqualTo(threshold));
+      expect(voice.sent, contains('chime alert'));
+      expect(c.goldAlert!.fired, isTrue);
+      c.alertAction(AlertAction.primary);
+      expect(c.screen, Screen.gold);
+      run(const Duration(minutes: 3));
+      expect(c.alert, isNull, reason: 'fires once');
+      await store.idle;
+      await make(withStore: store);
+      expect(c.goldAlert!.fired, isTrue, reason: 'kept after a restart, not fired again');
+    });
+
+    test('"Tắt báo" removes the alert', () async {
+      await make();
+      c.run(SetGoldAlert((c.gold.last + 1).roundToDouble()));
+      for (var i = 0; i < 300 && c.alert == null; i++) {
+        run(const Duration(seconds: 1));
+      }
+      c.alertAction(AlertAction.secondary);
+      expect(c.goldAlert, isNull);
+    });
+  });
+
+  group('busy at a time', () {
+    test('a meeting in that hour is named with its times; a free hour says what comes after', () async {
+      await make(hour: 8);
+      say('CHÍN GIỜ SÁNG NAY CÓ HỌP KHÔNG');
+      expect(c.flash!.eyebrow, 'LÚC 09:00 · CÓ LỊCH');
+      expect(c.flash!.title, 'Họp đứng');
+      expect(c.flash!.meta, '09:00–09:15');
+      say('mười giờ có lịch gì không');
+      expect(c.flash!.eyebrow, 'LÚC 10:00 · CÓ LỊCH', reason: 'Họp thiết kế starts at 10:30, inside the hour');
+      expect(c.flash!.title, 'Họp thiết kế');
+      say('sáu giờ chiều nay có họp không');
+      expect(c.flash!.eyebrow, 'LÚC 18:00 · RẢNH');
+      expect(c.flash!.title, 'Không có lịch');
+      expect(c.flash!.meta, 'Sau đó cũng trống');
+      expect(c.flash!.cool, isTrue);
+      say('tám giờ sáng nay có họp không');
+      expect(c.flash!.eyebrow, 'LÚC 08:00 · RẢNH');
+      expect(c.flash!.meta, 'Tiếp theo 09:00 Họp đứng');
+      expect(c.screen, Screen.home, reason: 'answered on the home screen');
+    });
+  });
+
+  group('week and month (scenario 4)', () {
+    test('week, free slots on Thursday, month and days until a deadline (also when STT gets a word wrong)', () async {
+      await make();
+      say('TUẦN NÀY ANH CÓ GÌ');
+      expect(c.screen, Screen.week);
+      say('THỨ NĂM RẢNH LÚC NÀO');
+      expect(c.freeSlotsDay, DateTime(2026, 11, 19));
+      say('MỞ LỊCH THÁNG NÀY');
+      expect(c.screen, Screen.month);
+      say('CÒN MẤY NGÀY TỚI HẠN GỬI BÁO CÁO');
+      expect(c.countdownTo?.id, 'quote');
+      say('CÒN MẤY NGÀY TỚI HẠN NỘP THUẾ');
+      expect(c.flash!.eyebrow, 'KHÔNG THẤY');
+      run(const Duration(seconds: 61));
+      expect(c.screen, Screen.home, reason: 'idle return');
     });
   });
 
