@@ -4,8 +4,10 @@ import 'package:near_app/app/app_controller.dart';
 import 'package:near_app/data/calendar_source.dart';
 import 'package:near_app/domain/intent/commands.dart';
 import 'package:near_app/ui/theme.dart' show micZoneWidth, stripWidth;
+import 'package:near_app/ui/widgets/timeline.dart';
 import 'package:near_app/voice/voice_client.dart';
 
+import '../support/fakes.dart';
 import '../support/fonts.dart';
 import '../support/strip.dart';
 
@@ -358,5 +360,134 @@ void main() {
     final h = await StripHarness.pump(tester, at: at(15, 10), launchedAt: at(15, 10));
     expect(find.text(SampleCalendarSource.quickTitle), findsWidgets);
     expect(h.c.screen, Screen.home);
+  });
+
+  // ---------------------------------------------------------------- scenario 6: meeting clock, calendar change, offline
+
+  /// Every piece of text on screen: no overflow, inside the strip, left of the mic and VI/EN zone above y 200.
+  void checkText(WidgetTester tester, String reason) {
+    expect(tester.takeException(), isNull, reason: '$reason: no overflow');
+    for (final e in find.byType(RichText).evaluate()) {
+      final box = e.renderObject! as RenderBox;
+      final r = MatrixUtils.transformRect(box.getTransformTo(null), Offset.zero & box.size);
+      final text = (e.widget as RichText).text.toPlainText();
+      expect(r.left, greaterThanOrEqualTo(0), reason: '$reason: "$text"');
+      expect(r.right, lessThanOrEqualTo(stripWidth), reason: '$reason: "$text"');
+      if (r.top < 200 && text != 'VI' && text != 'EN') {
+        expect(r.right, lessThanOrEqualTo(stripWidth - micZoneWidth), reason: '$reason: "$text"');
+      }
+    }
+  }
+
+  testWidgets('scenario 6, 11:39: the meeting clock, its countdown, the meeting lit; an answer takes the left block',
+      (tester) async {
+    final h = await StripHarness.pump(tester, at: at(11, 39));
+    expect(find.text('ĐANG HỌP · 10:30 – 11:45'), findsOneWidget);
+    expect(find.byKey(const Key('meeting-title')), findsOneWidget);
+    expect(find.text('Sau đó: 12:00 Ăn trưa · nghỉ 15 phút'), findsOneWidget);
+    expect(find.text('06:00'), findsOneWidget);
+    expect(find.text('CÒN LẠI · HẾT GIỜ 11:45'), findsOneWidget);
+    expect(find.text('11:39'), findsNothing, reason: 'the countdown replaces the clock');
+    final cd = tester.getRect(find.byKey(const Key('meeting-countdown')));
+    expect(cd.right, lessThanOrEqualTo(stripWidth - micZoneWidth));
+    expect(cd.bottom, lessThan(212), reason: 'above the timeline');
+    expect(tester.widget<Text>(find.byKey(const Key('meeting-countdown'))).style!.fontSize, 136);
+    final title = tester.getRect(find.byKey(const Key('meeting-title')));
+    expect(title.right, lessThan(cd.left), reason: 'the title does not run into the countdown');
+    final lit = tester.widget<Timeline>(find.byType(Timeline));
+    expect(lit.highlightId, h.c.meeting!.event.id);
+    checkText(tester, 'meeting clock');
+    await h.run(const Duration(seconds: 61));
+    expect(find.text('04:59'), findsOneWidget);
+    await h.say('ghi lại chuẩn bị tài liệu thuyết trình quý bốn cho buổi họp hội đồng quản trị mở rộng vào cuối tuần sau');
+    expect(find.text('ĐÃ GHI NHANH'), findsOneWidget);
+    expect(find.text('04:59'), findsOneWidget, reason: 'the countdown stays');
+    checkText(tester, 'long answer during a meeting');
+    await h.run(const Duration(minutes: 5));
+    expect(find.text('ĐANG HỌP · 10:30 – 11:45'), findsNothing, reason: 'over at 11:45');
+    expect(find.text('11:45'), findsWidgets, reason: 'the day strip and its clock are back');
+  });
+
+  testWidgets('scenario 6, 11:39 on the columns: the calendar column counts down', (tester) async {
+    final h = await StripHarness.pump(tester, at: at(11, 39), columns: true);
+    expect(find.byKey(const Key('columns-meeting-countdown')), findsOneWidget);
+    expect(find.text('06:00'), findsOneWidget);
+    expect(find.text('CÒN LẠI · HẾT GIỜ 11:45'), findsOneWidget);
+    expect(find.text('Họp thiết kế'), findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const Key('columns-clock'))).data, '11:39', reason: 'the clock, small');
+    checkText(tester, 'meeting column');
+    await h.run(const Duration(seconds: 30));
+    expect(find.text('05:30'), findsOneWidget);
+  });
+
+  testWidgets('scenario 6, 13:05: the 1:1 moves to 14:00 by itself; flash, ghost at 14:30, teal block', (tester) async {
+    // Launched 12:44: the sample moves the 1:1 at 13:04; the 5-minute fetch after 13:00 sees it at 13:05.
+    final h = await StripHarness.pump(tester, at: at(13), launchedAt: at(12, 44));
+    expect(find.byKey(const ValueKey('timeline-ghost-1180')), findsNothing);
+    await h.run(const Duration(minutes: 5));
+    expect(find.text('LỊCH VỪA ĐỔI · 14:30 → 14:00'), findsOneWidget);
+    expect(find.text('1:1 dời lên 14:00'), findsOneWidget);
+    expect(find.text('Sớm hơn 30 phút · còn 55 phút · Minh đổi lúc 13:04'), findsOneWidget);
+    final ghost = find.byWidgetPredicate((w) => '${w.key}'.contains('timeline-ghost-'));
+    expect(ghost, findsOneWidget);
+    final g = tester.getRect(ghost);
+    expect(g.left, closeTo(Timeline.x(at(14, 30)), .5));
+    expect(g.top, 212 + 30.0);
+    final box = tester.getRect(find.ancestor(of: find.text('1:1'), matching: find.byType(Container)).first);
+    expect(box.left, closeTo(Timeline.x(at(14)), .5), reason: 'the block is at its new time');
+    expect(box.right, lessThanOrEqualTo(g.left), reason: 'side by side with its old slot');
+    expect(h.voice.sent, contains('chime soft'));
+    checkText(tester, 'moved');
+    await h.run(AppController.movedFlashFor);
+    expect(find.text('1:1 dời lên 14:00'), findsNothing);
+    expect(ghost, findsOneWidget, reason: 'the ghost stays until 14:30');
+  });
+
+  testWidgets('scenario 6, 15:20: offline card in the middle, the timer by voice still runs, the card shrinks under it',
+      (tester) async {
+    final probe = FakeProbe();
+    final h = await StripHarness.pump(tester, at: at(15, 18), network: probe);
+    probe.up = false;
+    for (var i = 0; i < 4; i++) {
+      await h.run(const Duration(seconds: 30)); // one probe per run: it answers when the test pumps
+    }
+    expect(h.c.offline, isTrue);
+    expect(find.text('MẤT MẠNG'), findsOneWidget);
+    expect(find.text('Lịch lưu lúc 15:18'), findsOneWidget);
+    expect(find.text('Lệnh giọng nói vẫn chạy'), findsOneWidget);
+    final card = tester.getRect(find.byKey(const Key('offline-card')));
+    expect(card.left, 450);
+    expect(card.bottom, lessThan(212));
+    expect(card.right, lessThanOrEqualTo(stripWidth - micZoneWidth - 600));
+    expect(find.text('TIẾP THEO'), findsOneWidget);
+    checkText(tester, 'offline');
+    await h.say('hẹn giờ 10 phút');
+    expect(find.text('ĐÃ HẸN GIỜ'), findsOneWidget);
+    expect(find.text('10:00'), findsOneWidget);
+    expect(find.byKey(const Key('offline-card')), findsNothing);
+    final line = tester.getRect(find.byKey(const Key('offline-line')));
+    final timer = tester.getRect(find.byKey(const Key('plain-timer')));
+    expect(line.top, greaterThanOrEqualTo(timer.bottom), reason: 'under the timer');
+    expect(line.bottom, lessThan(212));
+    checkText(tester, 'offline + timer');
+    probe.up = true;
+    await h.run(const Duration(seconds: 30));
+    expect(find.byKey(const Key('offline-line')), findsNothing, reason: 'back online');
+  });
+
+  testWidgets('scenario 6 offline on the columns: a note in the calendar column; the gold tile gives way on the strip',
+      (tester) async {
+    final probe = FakeProbe(up: false);
+    final h = await StripHarness.pump(tester, at: at(15, 20), columns: true, network: probe);
+    await h.run(const Duration(seconds: 10));
+    expect(find.byKey(const Key('offline-line')), findsOneWidget);
+    final note = tester.getRect(find.byKey(const Key('offline-line')));
+    expect(note.right, lessThanOrEqualTo(tester.getRect(find.byKey(const Key('column-calendar'))).right));
+    checkText(tester, 'offline columns');
+    await h.say('về một cột');
+    await h.say('mở chart vàng');
+    await h.run(AppController.idleReturn);
+    expect(find.byKey(const Key('gold-mini')), findsNothing, reason: 'the offline card takes the middle');
+    expect(find.byKey(const Key('offline-card')), findsOneWidget);
   });
 }

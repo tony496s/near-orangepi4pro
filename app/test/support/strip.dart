@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:near_app/app/app_controller.dart';
 import 'package:near_app/core/clock.dart';
 import 'package:near_app/data/calendar_source.dart';
+import 'package:near_app/data/network_probe.dart';
 import 'package:near_app/domain/intent/commands.dart';
 import 'package:near_app/ui/strip_app.dart';
 import 'package:near_app/voice/voice_client.dart';
@@ -20,7 +21,7 @@ class StripHarness {
   /// [columns]: start on the three-column home screen, as a first start does. Most tests are about the day strip, so
   /// they start on one column.
   static Future<StripHarness> pump(WidgetTester tester,
-      {required DateTime at, DateTime? launchedAt, bool columns = false}) async {
+      {required DateTime at, DateTime? launchedAt, bool columns = false, NetworkProbe? network}) async {
     tester.view.physicalSize = const Size(1480, 320);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -29,10 +30,12 @@ class StripHarness {
     final c = AppController(
       clock: clock,
       store: tempStore(),
-      calendar: SampleCalendarSource(launchedAt: launchedAt ?? DateTime(at.year, at.month, at.day, 6)),
+      // With the clock, as on the board: the sample 1:1 moves to 14:00 twenty minutes after launch.
+      calendar: SampleCalendarSource(launchedAt: launchedAt ?? DateTime(at.year, at.month, at.day, 6), clock: clock),
       voice: voice,
       heardHold: Duration.zero,
       log: (_) {},
+      network: network,
     );
     await tester.runAsync(() => c.start(ticker: false));
     if (!columns) {

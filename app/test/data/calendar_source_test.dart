@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:near_app/core/clock.dart';
 import 'package:near_app/data/calendar_source.dart';
 import 'package:near_app/domain/models.dart';
 
@@ -119,6 +120,59 @@ void main() {
       expect(list.map((e) => e.id).toSet(), hasLength(list.length));
       expect(list.every((e) => !e.start.isBefore(from) && e.start.isBefore(to)), isTrue);
       expect(list.first.start, DateTime(2026, 11, 1, 17), reason: '1/11 is a Sunday: football first');
+    });
+  });
+
+  group('the sample move (scenario 6, 13:05)', () {
+    final day = DateTime(2026, 11, 16);
+    DateTime at(int h, [int m = 0]) => day.add(Duration(hours: h, minutes: m));
+    Future<CalendarEvent> oneOnOne(SampleCalendarSource s) async =>
+        (await s.fetch(day, day.add(const Duration(days: 1)))).singleWhere((e) => e.title == '1:1');
+
+    test('the 1:1 moves 30 minutes earlier 20 minutes after launch, organised by Minh', () async {
+      final clock = FakeClock(at(12, 44, ));
+      final s = SampleCalendarSource(launchedAt: at(12, 44), clock: clock);
+      expect(s.moveAt, at(13, 4));
+      clock.set(at(13, 3, ));
+      final before = await oneOnOne(s);
+      expect((before.start, before.end, before.updatedAt), (at(14, 30), at(15), null));
+      clock.set(at(13, 4));
+      final after = await oneOnOne(s);
+      expect((after.id, after.start, after.end), (before.id, at(14), at(14, 30)));
+      expect((after.organizer, after.updatedAt), ('Minh', at(13, 4)));
+    });
+
+    test('no clock or no moveAfter: the day never changes on its own; moveNow moves it at once, once', () async {
+      expect((await oneOnOne(SampleCalendarSource(launchedAt: at(8)))).start, at(14, 30));
+      final clock = FakeClock(at(9));
+      final s = SampleCalendarSource(launchedAt: at(8), clock: clock, moveAfter: null);
+      expect(s.moveAt, isNull);
+      expect((await oneOnOne(s)).start, at(14, 30));
+      s.moveNow();
+      expect((await oneOnOne(s)).start, at(14));
+      expect((await oneOnOne(s)).updatedAt, at(9));
+      clock.set(at(10));
+      s.moveNow();
+      expect(s.moveAt, at(9), reason: 'already moved');
+    });
+
+    test('a move due after 14:00 does not happen (it could not be seen coming)', () async {
+      final clock = FakeClock(at(14, 10));
+      final s = SampleCalendarSource(launchedAt: at(13, 50), clock: clock);
+      expect((await oneOnOne(s)).start, at(14, 30));
+    });
+
+    test('the quick meeting keeps clear of both slots, so it does not move with the 1:1', () async {
+      final clock = FakeClock(at(13, 39));
+      final s = SampleCalendarSource(launchedAt: at(13, 39), clock: clock);
+      Future<CalendarEvent> quick() async => (await s.fetch(day, day.add(const Duration(days: 1))))
+          .singleWhere((e) => e.title == SampleCalendarSource.quickTitle);
+      final q0 = await quick();
+      clock.set(at(13, 59));
+      final q1 = await quick();
+      expect(q1.start, q0.start);
+      expect((await oneOnOne(s)).start, at(14));
+      expect(q1.end.isAfter(at(14)) && q1.start.isBefore(at(14, 30)), isFalse, reason: 'no overlap with the moved 1:1');
     });
   });
 }

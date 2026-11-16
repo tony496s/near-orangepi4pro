@@ -17,10 +17,47 @@ typedef SampleEventSpec = (String start, String end, String title, EventKind kin
 /// gets the demo week's events for its weekday ([week]). The deadline [deadlineTitle] falls on the first Friday after
 /// launch, and [monthMarks] come back every month. One extra short meeting starts about 7 minutes after launch, so
 /// "meeting in 5 minutes" can be shown at any time of day.
+///
+/// With a [clock], the launch day's 1:1 (14:30) moves 30 minutes earlier, organised by [movedBy], at [moveAt]:
+/// [moveAfter] after launch (20 minutes by default), or when [moveNow] is called (the demo trigger). It only moves
+/// while 14:00 is still ahead, so the change can be seen live ("Lịch đổi thì dải ngày đổi theo"). Without a clock the
+/// sample day never changes.
 class SampleCalendarSource implements CalendarSource {
-  SampleCalendarSource({required this.launchedAt});
+  SampleCalendarSource({required this.launchedAt, this.clock, this.moveAfter = defaultMoveAfter});
 
   final DateTime launchedAt;
+  final Clock? clock;
+
+  /// How long after launch the 1:1 moves by itself; null: only on [moveNow].
+  final Duration? moveAfter;
+
+  static const defaultMoveAfter = Duration(minutes: 20);
+
+  /// Id of the event that moves (today's 1:1), how far, and who moved it.
+  static const movingId = 't3';
+  static const moveBy = Duration(minutes: -30);
+  static const movedBy = 'Minh';
+
+  DateTime? _forcedMoveAt;
+
+  /// When the 1:1 moves (or moved); null: it does not.
+  DateTime? get moveAt {
+    if (clock == null) return null;
+    final auto = moveAfter == null ? null : launchedAt.add(moveAfter!);
+    final forced = _forcedMoveAt;
+    if (forced == null) return auto;
+    return auto == null || forced.isBefore(auto) ? forced : auto;
+  }
+
+  /// Moves the 1:1 now (unless it has moved already). The next fetch returns it at its new time.
+  void moveNow() {
+    final c = clock;
+    if (c == null) return;
+    final t = c.now();
+    final at = moveAt;
+    if (at != null && !t.isBefore(at)) return;
+    _forcedMoveAt = t;
+  }
 
   static const List<SampleEventSpec> today = [
     ('09:00', '09:15', 'Họp đứng', EventKind.meeting, 'Phòng 3', null),
@@ -70,8 +107,35 @@ class SampleCalendarSource implements CalendarSource {
     final day1 = DateTime(day0.year, day0.month, day0.day + 1);
     final deadline = DateTime(day0.year, day0.month, day0.day + (DateTime.friday - day0.weekday + 6) % 7 + 1, 10);
     final out = <CalendarEvent>[..._place(today, day0, 't'), ..._place(tomorrow, day1, 'm')];
-    final quick = _quickMeeting(out);
+    final i = out.indexWhere((e) => e.id == movingId);
+    final one = out[i];
+    final moved = CalendarEvent(
+      id: one.id,
+      title: one.title,
+      start: one.start.add(moveBy),
+      end: one.end.add(moveBy),
+      kind: one.kind,
+      place: one.place,
+      people: one.people,
+      organizer: movedBy,
+      updatedAt: moveAt,
+    );
+    // The quick meeting keeps clear of both slots of the 1:1, so it stays put when the 1:1 moves.
+    final quick = _quickMeeting([...out, if (clock != null) moved]);
     if (quick != null) out.add(quick);
+    final at = moveAt;
+    final now = clock?.now();
+    out[i] = now != null && at != null && !now.isBefore(at) && at.isBefore(moved.start)
+        ? moved
+        : CalendarEvent(
+            id: one.id,
+            title: one.title,
+            start: one.start,
+            end: one.end,
+            kind: one.kind,
+            place: one.place,
+            people: one.people,
+            organizer: movedBy);
     // Every other day of the range, from the demo week by weekday.
     for (var d = dayOf(from); d.isBefore(to); d = DateTime(d.year, d.month, d.day + 1)) {
       final id = '${d.year}${two(d.month)}${two(d.day)}';
