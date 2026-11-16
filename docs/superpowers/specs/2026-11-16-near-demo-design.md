@@ -165,6 +165,7 @@ Mỗi thư mục làm một việc, và chỉ phụ thuộc vào thư mục nằ
     - `{"ev":"ready","model":"…"}`
     - `{"ev":"listening","id":"…"}`
     - `{"ev":"level","db":-31.5}` (10 lần/giây, để vẽ thanh sóng)
+    - `{"ev":"processing","id":"…"}` (đã hết câu, đang chạy STT)
     - `{"ev":"final","id":"…","text":"…","audio_ms":1800,"stt_ms":170}`
     - `{"ev":"timeout","id":"…"}`
     - `{"ev":"error","msg":"…"}`
