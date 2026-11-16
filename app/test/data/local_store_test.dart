@@ -53,6 +53,13 @@ void main() {
     expect((await tempStore().load()).layout.split, isTrue, reason: 'no file at all');
   });
 
+  test('the day the morning brief last showed is kept; none when missing', () async {
+    final store = tempStore();
+    await store.save(sample()..lastBriefDay = '2026-11-17');
+    expect((await store.load()).lastBriefDay, '2026-11-17');
+    expect(StoredState.fromJson({}).lastBriefDay, isNull, reason: 'a state file from before the brief');
+  });
+
   test('serialized saves: the last one wins', () async {
     final store = tempStore();
     final a = sample();

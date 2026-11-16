@@ -18,6 +18,7 @@ class StoredState {
     this.voiceLang = 'vi',
     this.layout = StripLayout.initial,
     this.goldAlert,
+    this.lastBriefDay,
   })  : notes = notes ?? [],
         reminders = reminders ?? [],
         sessions = sessions ?? [];
@@ -39,6 +40,9 @@ class StoredState {
   /// "báo anh khi vàng vượt …", kept until it fires and is closed, or replaced.
   GoldAlert? goldAlert;
 
+  /// "2026-11-17" once the morning brief showed by itself that day.
+  String? lastBriefDay;
+
   Map<String, Object?> toJson() => {
         'version': 1,
         'notes': [for (final n in notes) n.toJson()],
@@ -49,6 +53,7 @@ class StoredState {
         'voiceLang': voiceLang,
               'layout': layout.toJson(),
         'goldAlert': goldAlert?.toJson(),
+        'lastBriefDay': lastBriefDay,
       };
 
   static StoredState fromJson(Map<String, Object?> j) {
@@ -63,6 +68,7 @@ class StoredState {
       voiceLang: j['voiceLang'] == 'en' ? 'en' : 'vi',
       layout: j['layout'] is Map ? StripLayout.fromJson((j['layout'] as Map).cast<String, Object?>()) : StripLayout.initial,
       goldAlert: GoldAlert.fromJson(j['goldAlert']),
+      lastBriefDay: j['lastBriefDay'] as String?,
     );
   }
 

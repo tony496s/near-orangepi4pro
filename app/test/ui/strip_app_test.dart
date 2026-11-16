@@ -285,6 +285,44 @@ void main() {
     expect(find.text('NGÀY MAI'), findsOneWidget);
   });
 
+  testWidgets('scenario 6: after the night the brief shows over the columns with yesterday\'s open items; a tap returns',
+      (tester) async {
+    final h = await StripHarness.pump(tester, at: at(17, 40), columns: true);
+    await h.say('ghi lại gửi báo giá cho khách trước thứ sáu');
+    await h.say('ghi lại mua sữa và trứng trên đường về');
+    await h.say('ghi lại đặt phòng họp thứ năm');
+    await h.run(const Duration(minutes: 10));
+    expect(find.text('TỔNG KẾT HÔM NAY'), findsOneWidget);
+    await tester.tap(find.text('Đặt phòng họp thứ năm'));
+    await h.settle();
+    h.clock.set(at(23, 10));
+    h.c.tick();
+    await h.settle();
+    expect(h.c.night, isTrue);
+    h.clock.set(DateTime(2026, 11, 17, 6, 29, 55));
+    h.c.tick();
+    await h.settle();
+    expect(find.text('CHÀO BUỔI SÁNG'), findsNothing, reason: 'still night');
+    await h.run(const Duration(seconds: 5));
+    expect(find.text('CHÀO BUỔI SÁNG'), findsOneWidget);
+    expect(find.text('Thứ Ba 17/11'), findsOneWidget);
+    expect(find.text('3 cuộc họp'), findsOneWidget);
+    expect(find.text('Rảnh dài nhất 10:00 – 13:30'), findsOneWidget);
+    expect(find.text('2 VIỆC TỪ HÔM QUA'), findsOneWidget);
+    expect(find.text('Gửi báo giá cho khách trước thứ sáu'), findsOneWidget);
+    expect(find.text('Mua sữa và trứng trên đường về'), findsOneWidget);
+    expect(find.text('Đặt phòng họp thứ năm'), findsNothing, reason: 'ticked off on the recap');
+    expect(find.text('Sync với team design'), findsOneWidget, reason: 'today\'s timeline');
+    expect(find.byKey(const Key('column-gold')), findsNothing, reason: 'the whole strip, over the columns');
+    expect(find.byKey(const Key('mic')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tapAt(const Offset(600, 120));
+    await h.settle();
+    expect(find.byKey(const Key('column-gold')), findsOneWidget, reason: 'back to the columns');
+    await h.run(const Duration(minutes: 2));
+    expect(find.text('CHÀO BUỔI SÁNG'), findsNothing, reason: 'once a day');
+  });
+
   testWidgets('night: black, a tap shows the clock, it hides again', (tester) async {
     final h = await StripHarness.pump(tester, at: at(23, 10));
     expect(find.text('23:10'), findsNothing);

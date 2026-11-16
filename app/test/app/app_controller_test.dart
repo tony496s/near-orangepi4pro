@@ -632,6 +632,95 @@ void main() {
     expect(c.clockValid, isFalse);
     expect(c.night, isFalse);
   });
+
+  group('morning brief (scenario 6)', () {
+    test('shows by itself when the night ends, leaves after a minute, once a day', () async {
+      await make(hour: 23, minute: 10);
+      expect(c.screen, Screen.home);
+      clock.set(DateTime(2026, 11, 17, 6, 29, 59));
+      c.tick();
+      expect(c.night, isTrue);
+      expect(c.screen, Screen.home, reason: 'not during the night');
+      run(const Duration(seconds: 1));
+      expect(c.night, isFalse);
+      expect(c.screen, Screen.brief, reason: 'the first awake tick after the night');
+      run(const Duration(seconds: 59));
+      expect(c.screen, Screen.brief);
+      run(const Duration(seconds: 1));
+      expect(c.screen, Screen.home, reason: 'idle return like the recap');
+      run(const Duration(minutes: 5));
+      expect(c.screen, Screen.home, reason: 'once a day');
+    });
+
+    test('awake before 06:00 ("bật màn"): it waits for 06:00', () async {
+      await make(hour: 5, minute: 50);
+      c.run(const ScreenOnCommand());
+      expect(c.night, isFalse);
+      run(const Duration(minutes: 9, seconds: 59));
+      expect(c.screen, Screen.home);
+      run(const Duration(seconds: 1));
+      expect(c.screen, Screen.brief);
+    });
+
+    test('a first start in the morning shows it; a reboot the same day does not', () async {
+      await make(hour: 8, minute: 25);
+      expect(c.screen, Screen.brief);
+      c.dismissBrief();
+      expect(c.screen, Screen.home, reason: 'a tap goes home');
+      await store.idle;
+      await make(hour: 9, withStore: store);
+      expect(c.screen, Screen.home, reason: 'already shown today');
+    });
+
+    test('not in the afternoon', () async {
+      await make(hour: 14, minute: 0);
+      expect(c.screen, Screen.home);
+    });
+
+    test('waits for a focus session and its alert, then shows', () async {
+      await make(hour: 6, minute: 0);
+      say('hẹn giờ 40 phút để tập trung');
+      run(const Duration(minutes: 31));
+      expect(c.night, isFalse);
+      expect(c.screen, Screen.home, reason: 'not over a focus session');
+      run(const Duration(minutes: 9));
+      expect(c.alert, isA<TimerDoneAlert>());
+      run(const Duration(seconds: 5));
+      expect(c.screen, Screen.home, reason: 'not over an alert');
+      c.alertAction(AlertAction.secondary);
+      run(const Duration(seconds: 1));
+      expect(c.screen, Screen.brief);
+    });
+
+    test('shows over the columns; swipes leave it for the columns', () async {
+      await make(hour: 8, minute: 0);
+      expect(c.layout.split, isTrue);
+      expect(c.screen, Screen.brief);
+      c.swipeUp();
+      expect(c.screen, Screen.home);
+      expect(c.layout.split, isTrue, reason: 'back to the columns');
+    });
+
+    test('carries yesterday\'s open notes and reminders, not the done ones, into the brief', () async {
+      await make(hour: 14, minute: 0);
+      say('ghi lại gửi báo giá cho khách trước thứ sáu');
+      say('ghi lại đặt phòng họp thứ năm');
+      c.toggleDone(c.notes.last.id);
+      c.run(AddReminder('Gọi cho chị Lan', day.add(const Duration(hours: 15))));
+      c.run(AddReminder('Mua quà sinh nhật mẹ', day.add(const Duration(hours: 16))));
+      run(const Duration(hours: 1));
+      expect((c.alert as ReminderAlert).reminder.text, 'Gọi cho chị Lan');
+      c.alertAction(AlertAction.primary); // "Xong" for chị Lan
+      run(const Duration(hours: 1));
+      expect(c.alert, isA<ReminderAlert>());
+      run(AppController.alertTimeout); // the gift reminder is left unanswered
+      expect(c.morningBrief.carried, isEmpty, reason: 'nothing is carried on the same day');
+      clock.set(DateTime(2026, 11, 17, 7, 59, 59));
+      c.tick();
+      say('ghi lại mua cà phê');
+      expect(c.morningBrief.carried.map((i) => i.text), ['Gửi báo giá cho khách trước thứ sáu', 'Mua quà sinh nhật mẹ']);
+    });
+  });
 }
 
 /// The parser's ScreenOn command, under a name that reads well in a test.
