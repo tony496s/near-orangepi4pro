@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import secrets
+import stat
 import threading
 import time
 import urllib.error
@@ -82,7 +83,8 @@ class AuthError(Exception):
 
 class HarnessAuth:
     """The board's Harness sign-in: hands out an access token, renewing it with the refresh token when it is about to
-    expire. Thread safe. The file is read again whenever it changes, so a new sign-in needs no restart."""
+    expire. Thread safe. The file is read again whenever it changes, so a new sign-in needs no restart, and a renewal
+    never overwrites a file that was replaced while the backend answered."""
 
     def __init__(self, path: str = DEFAULT_AUTH_FILE, api: str = DEFAULT_API, *, post: Post = http_post,
                  now: Callable[[], float] = time.time, timeout_s: float = 10.0) -> None:
@@ -98,7 +100,13 @@ class HarnessAuth:
         self._refused_mtime: Optional[float] = None
 
     def available(self) -> bool:
-        return os.path.isfile(self.path)
+        """Whether there is a sign-in to try: the file is there and is not the version whose refresh was refused. Takes
+        no lock: VoiceServer calls it on its event loop, while a refresh may hold the lock for [timeout_s]."""
+        try:
+            st = os.stat(self.path)
+        except OSError:
+            return False
+        return stat.S_ISREG(st.st_mode) and st.st_mtime != self._refused_mtime
 
     def token(self, force: bool = False) -> str:
         """A valid access token. [force] renews even when the current one looks valid (it was just refused)."""
@@ -130,6 +138,7 @@ class HarnessAuth:
         return self._session
 
     def _refresh(self, session: dict) -> str:
+        read_mtime = self._mtime  # the file version [session] came from
         body = {"refreshToken": session["refreshToken"], "autonomousEnv": session.get("autonomousEnv", "prod")}
         if session.get("clientId"):
             body["clientId"] = session["clientId"]
@@ -137,7 +146,7 @@ class HarnessAuth:
                                  {"Content-Type": "application/json"}, self._timeout)
         code = _error_code(res)
         if status == 401 or code == "REFRESH_TOKEN_INVALID":
-            self._refused_mtime = self._mtime
+            self._refused_mtime = read_mtime
             log.error("harness sign-in refused (HTTP %s): sign in again with tools/harness_login.py", status)
             raise AuthError("INVALID", "the Harness sign-in was refused: run tools/harness_login.py again")
         if code == "SIGN_IN_AGAIN":
@@ -151,6 +160,12 @@ class HarnessAuth:
             updated["refreshToken"] = data["refreshToken"]  # a rotated one must not be lost
         if isinstance(data.get("expiresIn"), (int, float)) and data["expiresIn"] > 0:
             updated["expiresAt"] = int((self._now() + data["expiresIn"]) * 1000)
+        if self._file_mtime() != read_mtime:
+            # A new sign-in was copied in (or the file removed) during the POST: it wins over the renewed old one. This
+            # call still gets its token; the next one reads the file again.
+            self._session = None
+            log.info("harness sign-in file replaced during the token refresh: kept it, the next call reads it")
+            return token
         self._session = updated
         try:
             write_private_json(self.path, updated)
@@ -160,6 +175,12 @@ class HarnessAuth:
             log.error("cannot save the renewed sign-in to %s: %s", self.path, e)
         log.info("harness access token renewed")
         return token
+
+    def _file_mtime(self) -> Optional[float]:
+        try:
+            return os.stat(self.path).st_mtime
+        except OSError:
+            return None
 
 
 def write_private_json(path: str, obj: dict) -> None:

@@ -49,7 +49,8 @@ Settings also come from the environment: `NEAR_VOICE_PORT`, `NEAR_MODELS`, `NEAR
 A `listen` may name its language: `{"cmd":"listen","id":"l1","lang":"en"}` (no `lang`: Vietnamese). With
 `--stt-en harness`, English goes to Harness `/api/voice/stt?lang=en` (Deepgram nova-3) with no local fallback (the
 local model is Vietnamese); a failure is an `error`. `ready` lists the languages on offer (`"langs":["vi","en"]`), English
-only while there is a sign-in; the app shows its VI/EN switch then. Measured on the E4 set (phase0 RESULTS.md, E4b):
+only while there is a sign-in that was not refused; the app shows its VI/EN switch then. The list is checked every 5 s
+and a change sends every app a fresh `ready`, so a sign-in copied to the board shows the switch without a restart. Measured on the E4 set (phase0 RESULTS.md, E4b):
 nova-3 31% English WER, p95 1.5 s; for Vietnamese, nova-2 did worse than Zipformer (23% against 7%), so `--stt cloud`
 (cloud words first for the default language) stays off on the board.
 

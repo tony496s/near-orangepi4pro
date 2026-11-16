@@ -5,7 +5,9 @@ thread -> "final". VAD and STT do not run outside a listen. Audio never leaves R
 cloud STT engine is configured (harness.py).
 
 Languages: [stt] transcribes the default one ([lang], Vietnamese); [engines] may add others, e.g. English through the
-Harness backend. A "listen" names its language; one the service does not have is answered with "error".
+Harness backend. A "listen" names its language; one the service does not have is answered with "error". The languages
+on offer are checked every [langs_check_s]: when they change (a sign-in copied to the board, or one that was refused),
+every app gets a fresh "ready".
 
 Wake word (wake.py, optional): a hit sends "wake"; the app answers with an ordinary "listen", and a listen that comes
 within [wake_listen_s] starts right after the wake word instead of 0.5 s back, so "Hey Near" is not transcribed.
@@ -59,6 +61,7 @@ class VoiceServer:
         no_audio_grace_s: float = 1.0,
         wake_listen_s: float = 1.5,
         lang: str = "vi",
+        langs_check_s: float = 5.0,
         executor: Optional[Executor] = None,
     ) -> None:
         self.vad = vad
@@ -87,6 +90,10 @@ class VoiceServer:
         self.wake_on = True
         self._wake_listen_s = wake_listen_s
         self._wake: Optional[Tuple[int, float]] = None
+        # Languages: checked every [langs_check_s] while the server runs (0: never), and the list in the last "ready".
+        self._langs_check_s = langs_check_s
+        self._langs: Optional[List[str]] = None
+        self._langs_task: Optional[asyncio.Task] = None
 
     # ---- lifecycle
 
@@ -94,9 +101,15 @@ class VoiceServer:
         self._server = await asyncio.start_server(self._serve_client, host, port)
         bound = self._server.sockets[0].getsockname()[1]
         log.info("listening on %s:%s", host, bound)
+        if self._langs_check_s > 0 and self._langs_task is None:
+            self._langs_task = asyncio.ensure_future(self._watch_langs())
         return bound
 
     async def close(self) -> None:
+        task, self._langs_task = self._langs_task, None
+        if task is not None:
+            task.cancel()
+            await asyncio.wait([task])
         self.cancel()
         if self._server is not None:
             self._server.close()
@@ -165,6 +178,31 @@ class VoiceServer:
         if lang is None or lang == self.lang:
             return self.stt
         return self.engines.get(lang)
+
+    def _announce_langs(self) -> bool:
+        """Sends a fresh "ready" to every app when the languages on offer differ from the last ones sent. True if it
+        did."""
+        langs = self.langs()
+        if langs == self._langs:
+            return False
+        if self._langs is not None:
+            log.info("langs now %s (was %s): ready again to %d app(s)", ", ".join(langs), ", ".join(self._langs),
+                     len(self._clients))
+        self._langs = langs
+        self._send(self._ready(langs))
+        return True
+
+    async def _watch_langs(self) -> None:
+        """A sign-in copied in, or one refused, changes the languages while the app is connected: no restart needed."""
+        while True:
+            await asyncio.sleep(self._langs_check_s)
+            try:
+                self._announce_langs()
+            except Exception:  # noqa: BLE001 - a broken available() must not end the checks for good
+                log.exception("langs check failed")
+
+    def _ready(self, langs: List[str]) -> bytes:
+        return p.ready(self.stt.model, self.stt.name, wake=self.wake_engine or "off", langs=langs)
 
     # ---- commands
 
@@ -319,7 +357,9 @@ class VoiceServer:
     async def _serve_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._clients.add(writer)
         log.info("app connected (%d)", len(self._clients))
-        writer.write(p.ready(self.stt.model, self.stt.name, wake=self.wake_engine or "off", langs=self.langs()))
+        # Languages changed since the last "ready": every app gets a fresh one, this one included. Else only this one.
+        if not self._announce_langs():
+            writer.write(self._ready(self._langs))
         try:
             while True:
                 try:

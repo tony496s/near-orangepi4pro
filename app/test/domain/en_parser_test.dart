@@ -36,6 +36,13 @@ void main() {
       expect(p('Count down 90 seconds'), const StartTimer(Duration(seconds: 90), focus: false));
     });
 
+    test('decimal durations are not split at the dot', () {
+      expect(p('Set a timer for 1.5 hours'), const StartTimer(Duration(minutes: 90), focus: false));
+      expect(p('Set a timer for 2.5 minutes'), const StartTimer(Duration(seconds: 150), focus: false));
+      expect(p('Set a timer for 1.5h'), const StartTimer(Duration(minutes: 90), focus: false));
+      expect(p('Remind me in 1.5 hours to stretch'), AddReminder('Stretch', now.add(const Duration(minutes: 90))));
+    });
+
     test('focus sessions', () {
       expect(p('Start a focus session for 30 minutes.'), const StartTimer(Duration(minutes: 30), focus: true));
       expect(p('Focus for an hour'), const StartTimer(Duration(hours: 1), focus: true));
@@ -52,6 +59,23 @@ void main() {
       expect(p('Stop focusing'), isA<CancelTimer>());
       expect(p('How much time is left?'), isA<TimeLeft>());
       expect(p('How many minutes left?'), isA<TimeLeft>());
+      expect(p('Turn off the timer'), isA<CancelTimer>());
+    });
+
+    test('a stop word in a sentence that starts a timer does not cancel it', () {
+      expect(p('Reset the timer to 10 minutes'), const StartTimer(Duration(minutes: 10), focus: false));
+      expect(p('Set a timer for 10 minutes to end the call'), const StartTimer(Duration(minutes: 10), focus: false));
+      expect(p('Start focusing until the end of the hour'), const StartTimer(Duration(minutes: 25), focus: true));
+    });
+
+    test('a stop word after the timer word does not cancel it', () {
+      expect(p('The timer can stop'), isNot(isA<CancelTimer>()));
+    });
+
+    test('cancelling a timer named by its length still cancels it; only "reset" to a length starts one', () {
+      expect(p('Cancel the 10 minute timer'), isA<CancelTimer>());
+      expect(p('Stop the 25 minute focus session'), isA<CancelTimer>());
+      expect(p('Reset the timer'), isA<CancelTimer>());
     });
   });
 
@@ -68,6 +92,12 @@ void main() {
         p('Add a note: turn off the screen in the meeting room'),
         const AddNote('Turn off the screen in the meeting room'),
       );
+    });
+
+    test('numbers, times and apostrophes in the note are kept as said', () {
+      expect(p('Add a note: call 555-1234 at 3:30'), const AddNote('Call 555-1234 at 3:30'));
+      expect(p("Take a note: Lan's birthday is Friday"), const AddNote("Lan's birthday is Friday"));
+      expect(p('Take a note: Lan’s budget is 1.5 million'), const AddNote("Lan's budget is 1.5 million"));
     });
 
     test('a prefix alone is no note', () {
@@ -88,6 +118,51 @@ void main() {
         AddReminder('Send the invoice', DateTime(2026, 11, 16, 16, 30)),
       );
       expect(p('Remind me to stand up at quarter to five'), AddReminder('Stand up', DateTime(2026, 11, 16, 16, 45)));
+      expect(p('Remind me at 3:30 to call Lan'), AddReminder('Call Lan', DateTime(2026, 11, 16, 15, 30)));
+      expect(p("Remind me to call Lan at 4 o'clock"), AddReminder('Call Lan', DateTime(2026, 11, 16, 16)));
+      expect(p("Remind me to buy Lan's gift at 5 pm"), AddReminder("Buy Lan's gift", DateTime(2026, 11, 16, 17)));
+    });
+
+    test('"3.30" is a clock time only after "at"', () {
+      expect(p('Remind me to call Lan at 4.30'), AddReminder('Call Lan', DateTime(2026, 11, 16, 16, 30)));
+      expect(p('Remind me to pay Lan 2.50'), const AddReminder('Pay Lan 2.50', null));
+    });
+
+    test('a part of the day said apart from a bare clock time sets am or pm', () {
+      expect(p('Remind me to call mom tomorrow evening at 8'), AddReminder('Call mom', DateTime(2026, 11, 17, 20)));
+      expect(p('Remind me at 7 tomorrow evening to call Lan'), AddReminder('Call Lan', DateTime(2026, 11, 17, 19)));
+      expect(p('Remind me tomorrow morning at 8 to run'), AddReminder('Run', DateTime(2026, 11, 17, 8)));
+      expect(p('Remind me tonight at 8 to call Lan'), AddReminder('Call Lan', DateTime(2026, 11, 16, 20)));
+      expect(p('Remind me this evening at 7 to call Lan'), AddReminder('Call Lan', DateTime(2026, 11, 16, 19)));
+      expect(p('Remind me at 7 this evening to call Lan'), AddReminder('Call Lan', DateTime(2026, 11, 16, 19)));
+      expect(
+        p('Remind me to finish this report this evening at 7'),
+        AddReminder('Finish this report', DateTime(2026, 11, 16, 19)),
+      );
+    });
+
+    test('early in the morning, "tonight at 8" is still the evening', () {
+      final earlyMorning = DateTime(2026, 11, 16, 6, 30);
+      expect(
+        parseEnglishCommand('Remind me tonight at 8 to call Lan', earlyMorning),
+        AddReminder('Call Lan', DateTime(2026, 11, 16, 20)),
+      );
+      expect(
+        parseEnglishCommand('Remind me this evening at 7 to call Lan', earlyMorning),
+        AddReminder('Call Lan', DateTime(2026, 11, 16, 19)),
+      );
+      expect(
+        parseEnglishCommand('Remind me at 9 this morning to call Lan', earlyMorning),
+        AddReminder('Call Lan', DateTime(2026, 11, 16, 9)),
+      );
+    });
+
+    test("the clock time's own am or pm wins over a part said elsewhere", () {
+      expect(p('Remind me tomorrow evening at 6 am to pack'), AddReminder('Pack', DateTime(2026, 11, 17, 6)));
+    });
+
+    test('a part of the day stays in the text when no time was resolved', () {
+      expect(p('Remind me to read the news this morning'), const AddReminder('Read the news this morning', null));
     });
 
     test('a bare hour after "at" is the next sensible one, as in Vietnamese', () {
@@ -138,6 +213,31 @@ void main() {
       expect(p('Screen off'), isA<ScreenOff>());
       expect(p('Good night'), isA<ScreenOff>());
       expect(p('Turn the screen on'), isA<ScreenOn>());
+      expect(p('Wake up'), isA<ScreenOn>());
+      expect(p('Hey Near, wake up.'), isA<ScreenOn>());
+      expect(p('Go to sleep'), isA<ScreenOff>());
+    });
+
+    test('"wake up" and "go to sleep" in a timer sentence are not screen commands', () {
+      expect(p('Set a 20 minute timer so I can wake up'), const StartTimer(Duration(minutes: 20), focus: false));
+      expect(p('Set a timer for 20 minutes then go to sleep'), const StartTimer(Duration(minutes: 20), focus: false));
+    });
+
+    test('"wake up" is the screen only when it leads the sentence', () {
+      expect(p('I need to wake up early'), isNull);
+    });
+
+    test('whichever comes first, the screen or the timer, is the command', () {
+      expect(p('Turn off the screen so I can focus'), isA<ScreenOff>());
+      expect(p('Turn the screen on and start focusing'), isA<ScreenOn>());
+      expect(
+        p('Set a timer for 10 minutes then turn off the screen'),
+        const StartTimer(Duration(minutes: 10), focus: false),
+      );
+    });
+
+    test('a delay on the screen is not supported: it goes off now, as before', () {
+      expect(p('Turn off the screen in 10 minutes'), isA<ScreenOff>());
     });
 
     test('moving or cancelling a meeting is not supported, and is not "cancel the timer"', () {
@@ -168,10 +268,17 @@ void main() {
   group('enTokenize', () {
     test('punctuation, times, contractions', () {
       expect(enTokenize('Set a timer for 10min.'), ['Set', 'a', 'timer', 'for', '10', 'min']);
-      expect(enTokenize('at 3:30 p.m.'), ['at', '3', '30', 'pm']);
+      expect(enTokenize('at 3:30 p.m.'), ['at', '3:30', 'pm']);
       expect(enTokenize('at 3PM'), ['at', '3', 'PM']);
       expect(enTokenize("What's twenty-five"), ['What', 'is', 'twenty', 'five']);
       expect(enTokenize('Hey Near, note: milk'), ['note', 'milk']);
+    });
+
+    test('numbers joined by ":", "." or "-" stay one word, and so do apostrophes inside a word', () {
+      expect(enTokenize('Set a timer for 1.5 hours.'), ['Set', 'a', 'timer', 'for', '1.5', 'hours']);
+      expect(enTokenize('Call 555-1234 at 3:30pm.'), ['Call', '555-1234', 'at', '3:30', 'pm']);
+      expect(enTokenize("Lan's 'quoted' o’clock"), ["Lan's", 'quoted', "o'clock"]);
+      expect(enTokenize('at 3: call - now'), ['at', '3', 'call', 'now']);
     });
   });
 }
