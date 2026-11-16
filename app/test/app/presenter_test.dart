@@ -82,8 +82,11 @@ void main() {
     final a = alertText(c, focus);
     expect((a.title, a.primary, a.secondary, a.done), ('Xong 25 phút tập trung', 'Nghỉ 5 phút', 'Để sau', true));
     expect(a.meta, 'Phiên 1 hôm nay · Tiếp theo: Họp thiết kế lúc 10:30');
-    final plain = alertText(c, TimerDoneAlert(ActiveTimer(startedAt: c.now, duration: const Duration(minutes: 10), focus: false), 0, c.now));
-    expect((plain.title, plain.primary), ('Hết 10 phút', 'Thêm 5 phút'));
+    final ten = TimerDoneAlert(ActiveTimer(startedAt: c.now, duration: const Duration(minutes: 10), focus: false), 0, c.now);
+    expect((alertText(c, ten).title, alertText(c, ten).primary), ('Hết 10 phút', '+10 phút'),
+        reason: 'on the columns (first start) the timer column offers ten more minutes');
+    c.run(const SingleColumn());
+    expect(alertText(c, ten).primary, 'Thêm 5 phút', reason: 'on the day strip');
     final r = Reminder(id: 'r', text: 'Gọi chị Lan', at: day.add(const Duration(hours: 15)), createdAt: day.add(const Duration(hours: 14, minutes: 12)));
     final ra = alertText(c, ReminderAlert(r, c.now));
     expect((ra.eyebrow, ra.title, ra.meta, ra.done), ('NHẮC VIỆC · 15:00', 'Gọi chị Lan', 'Hẹn lúc 14:12 bằng giọng nói', false));

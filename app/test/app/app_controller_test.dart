@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:near_app/app/app_controller.dart';
 import 'package:near_app/core/clock.dart';
 import 'package:near_app/data/local_store.dart';
+import 'package:near_app/domain/strip_layout.dart';
 import 'package:near_app/domain/intent/commands.dart';
 import 'package:near_app/voice/voice_client.dart';
 
@@ -11,6 +12,7 @@ void main() {
   final day = DateTime(2026, 11, 16);
   final events = [
     ev('stand', 'Họp đứng', day.add(const Duration(hours: 9)), 15),
+    ev('quote', 'Hạn gửi báo giá', day.add(const Duration(days: 4, hours: 10)), 0),
     ev('design', 'Họp thiết kế', day.add(const Duration(hours: 10, minutes: 30)), 75),
   ];
 
@@ -43,6 +45,158 @@ void main() {
     voice.emit(VoiceProcessing(id));
     voice.emit(VoiceFinal(id, text, sttMs: 170));
   }
+
+  group('home layout (scenario 5)', () {
+    test('first start is three columns; "về một cột" and "ba cột" switch and survive a restart', () async {
+      await make();
+      expect(c.layout, StripLayout.initial);
+      say('VỀ MỘT CỘT');
+      expect(c.layout.split, isFalse);
+      expect(c.screen, Screen.home);
+      await store.idle;
+      await make(withStore: store);
+      expect(c.layout.split, isFalse, reason: 'remembered after a reboot');
+      say('CHIA MÀN BA CỘT LỊCH GIÁ VÀNG HẸN GIỜ');
+      expect(c.layout, StripLayout.initial);
+      expect(c.timer, isNull, reason: '"hẹn giờ" in the list of columns starts no timer');
+      await store.idle;
+      await make(withStore: store);
+      expect(c.layout.split, isTrue);
+    });
+
+    test('"đổi cột giữa sang tỷ giá đô la" changes the middle only; the timer keeps running; the set is saved', () async {
+      await make();
+      say('hẹn giờ 45 phút');
+      say('ĐỔI CỘT GIỮA SANG TỶ GIÁ ĐÔ LA');
+      expect(c.layout, const StripLayout([Panel.calendar, Panel.fx, Panel.timer]));
+      expect(c.timer, isNotNull, reason: 'the timer column runs on');
+      expect(c.fx.points.length, 31, reason: 'USD/VND, 30 days back to today');
+      expect(c.fx.points.last.at, day);
+      final fx = c.fx;
+      run(const Duration(minutes: 10));
+      expect(identical(c.fx, fx), isTrue, reason: 'read once a day');
+      expect(c.screen, Screen.home);
+      say('đổi tỷ giá sang giá vàng');
+      expect(c.layout, StripLayout.initial, reason: 'the column showing fx');
+      say('đổi cột sang tỷ giá');
+      expect(c.layout.panels[1], Panel.fx, reason: 'no column named: the middle one');
+      await store.idle;
+      await make(withStore: store);
+      expect(c.layout.panels, const [Panel.calendar, Panel.fx, Panel.timer], reason: 'remembered after a reboot');
+    });
+
+    test('"về một cột" says the layout is kept; "chia màn" with names sets the columns', () async {
+      await make(hour: 10);
+      say('về một cột');
+      expect(c.flash!.eyebrow, 'TIẾP THEO');
+      expect(c.flash!.title, 'Họp thiết kế');
+      expect(c.flash!.meta, endsWith('· đã lưu bố cục ba cột'));
+      say('về một cột');
+      expect(c.flash, isNull, reason: 'already one column: nothing to keep');
+      say('chia màn hai cột lịch và hẹn giờ');
+      expect(c.layout, const StripLayout([Panel.calendar, Panel.timer]));
+      say('về một cột');
+      expect(c.flash!.meta, endsWith('đã lưu bố cục hai cột'));
+      say('ba cột');
+      expect(c.layout, const StripLayout([Panel.calendar, Panel.timer]), reason: 'no names: the remembered set');
+    });
+
+    test('gold comes from the price source for today, up to now', () async {
+      await make();
+      expect(c.gold.points.last.at, day.add(const Duration(hours: 9, minutes: 20)));
+      run(const Duration(minutes: 5));
+      expect(c.gold.points.last.at, day.add(const Duration(hours: 9, minutes: 25)), reason: 'refreshed every step');
+    });
+  });
+
+  group('gold (scenario 3)', () {
+    test('an alert just above the price fires once, within minutes, with a chime; "Xem chart" opens the chart', () async {
+      await make();
+      say('MỞ CHÁT VÀNG');
+      expect(c.screen, Screen.gold);
+      say('SO VỚI HÔM QUA THÌ SAO');
+      expect(c.goldCompare, isTrue);
+      final threshold = (c.gold.last + 2).roundToDouble();
+      c.run(SetGoldAlert(threshold));
+      expect(c.flash!.eyebrow, 'ĐÃ ĐẶT BÁO GIÁ');
+      expect(c.goldAlert!.above, isTrue);
+      for (var i = 0; i < 300 && c.alert == null; i++) {
+        run(const Duration(seconds: 1));
+      }
+      final a = c.alert;
+      expect(a, isA<GoldCrossedAlert>(), reason: 'crossed within 5 minutes');
+      expect((a as GoldCrossedAlert).price, greaterThanOrEqualTo(threshold));
+      expect(voice.sent, contains('chime alert'));
+      expect(c.goldAlert!.fired, isTrue);
+      c.alertAction(AlertAction.primary);
+      expect(c.screen, Screen.gold);
+      run(const Duration(minutes: 3));
+      expect(c.alert, isNull, reason: 'fires once');
+      await store.idle;
+      await make(withStore: store);
+      expect(c.goldAlert!.fired, isTrue, reason: 'kept after a restart, not fired again');
+    });
+
+    test('"Tắt báo" removes the alert', () async {
+      await make();
+      c.run(SetGoldAlert((c.gold.last + 1).roundToDouble()));
+      for (var i = 0; i < 300 && c.alert == null; i++) {
+        run(const Duration(seconds: 1));
+      }
+      c.alertAction(AlertAction.secondary);
+      expect(c.goldAlert, isNull);
+    });
+  });
+
+  test('a new timer clears a "hết giờ" still waiting', () async {
+    await make();
+    say('hẹn giờ 1 phút');
+    run(const Duration(seconds: 61));
+    expect(c.alert, isA<TimerDoneAlert>());
+    say('hẹn giờ 10 phút');
+    expect(c.alert, isNull);
+    expect(c.timer!.duration, const Duration(minutes: 10));
+  });
+
+  group('busy at a time', () {
+    test('a meeting in that hour is named with its times; a free hour says what comes after', () async {
+      await make(hour: 8);
+      say('CHÍN GIỜ SÁNG NAY CÓ HỌP KHÔNG');
+      expect(c.flash!.eyebrow, 'LÚC 09:00 · CÓ LỊCH');
+      expect(c.flash!.title, 'Họp đứng');
+      expect(c.flash!.meta, '09:00–09:15');
+      say('mười giờ có lịch gì không');
+      expect(c.flash!.eyebrow, 'LÚC 10:00 · CÓ LỊCH', reason: 'Họp thiết kế starts at 10:30, inside the hour');
+      expect(c.flash!.title, 'Họp thiết kế');
+      say('sáu giờ chiều nay có họp không');
+      expect(c.flash!.eyebrow, 'LÚC 18:00 · RẢNH');
+      expect(c.flash!.title, 'Không có lịch');
+      expect(c.flash!.meta, 'Sau đó cũng trống');
+      expect(c.flash!.cool, isTrue);
+      say('tám giờ sáng nay có họp không');
+      expect(c.flash!.eyebrow, 'LÚC 08:00 · RẢNH');
+      expect(c.flash!.meta, 'Tiếp theo 09:00 Họp đứng');
+      expect(c.screen, Screen.home, reason: 'answered on the home screen');
+    });
+  });
+
+  group('week and month (scenario 4)', () {
+    test('week, free slots on Thursday, month and days until a deadline (also when STT gets a word wrong)', () async {
+      await make();
+      say('TUẦN NÀY ANH CÓ GÌ');
+      expect(c.screen, Screen.week);
+      say('THỨ NĂM RẢNH LÚC NÀO');
+      expect(c.freeSlotsDay, DateTime(2026, 11, 19));
+      say('MỞ LỊCH THÁNG NÀY');
+      expect(c.screen, Screen.month);
+      say('CÒN MẤY NGÀY TỚI HẠN GỬI BÁO CÁO');
+      expect(c.countdownTo?.id, 'quote');
+      say('CÒN MẤY NGÀY TỚI HẠN NỘP THUẾ');
+      expect(c.flash!.eyebrow, 'KHÔNG THẤY');
+      run(const Duration(seconds: 61));
+      expect(c.screen, Screen.home, reason: 'idle return');
+    });
+  });
 
   group('scenario 1: keeping the morning rhythm', () {
     test('a spoken focus session runs, ends with an alert and a chime, and offers a break', () async {

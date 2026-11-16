@@ -38,3 +38,26 @@ String mmss(Duration d) {
 
 /// First letter upper-cased, the rest untouched.
 String capitalize(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
+/// Vietnamese number: '.' between thousands, ',' before decimals ("4.146,2").
+String viNumber(double v, {int decimals = 1}) {
+  final fixed = v.abs().toStringAsFixed(decimals);
+  final parts = fixed.split('.');
+  final whole = parts[0];
+  final grouped = StringBuffer();
+  for (var i = 0; i < whole.length; i++) {
+    if (i > 0 && (whole.length - i) % 3 == 0) grouped.write('.');
+    grouped.write(whole[i]);
+  }
+  final sign = v < 0 && double.parse(fixed) != 0 ? '-' : '';
+  return parts.length > 1 ? '$sign$grouped,${parts[1]}' : '$sign$grouped';
+}
+
+/// A gold price as spoken in the strip: "4.150" for a round number, else "4.146,4".
+String viPrice(double v) => v == v.roundToDouble() ? viNumber(v, decimals: 0) : viNumber(v);
+
+/// The next [weekday] (DateTime.monday..sunday) from [t]'s day, today included, at midnight.
+DateTime weekdayAhead(DateTime t, int weekday) {
+  final day = DateTime(t.year, t.month, t.day);
+  return day.add(Duration(days: (weekday - t.weekday + 7) % 7));
+}

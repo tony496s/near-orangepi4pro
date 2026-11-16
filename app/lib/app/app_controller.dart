@@ -5,17 +5,21 @@ import 'package:flutter/foundation.dart';
 import '../core/clock.dart';
 import '../core/vi_format.dart';
 import '../data/calendar_source.dart';
+import '../data/fx_source.dart';
 import '../data/local_store.dart';
+import '../data/price_source.dart';
 import '../domain/day_plan.dart';
 import '../domain/intent/commands.dart';
 import '../domain/intent/en_parser.dart';
 import '../domain/intent/parser.dart';
 import '../domain/models.dart';
+import '../domain/gold_alert.dart';
+import '../domain/strip_layout.dart';
 import '../voice/voice_client.dart';
 import 'scheduler.dart';
 
 /// Base screens. `home` shows the day strip, or the focus screen while a focus session runs.
-enum Screen { home, recap, tomorrow }
+enum Screen { home, recap, tomorrow, gold, week, month, day }
 
 /// A short confirmation or answer shown in the strip's right-hand block (or as a card during focus).
 class Flash {
@@ -71,6 +75,13 @@ final class ReminderAlert extends Alert {
   final Reminder reminder;
 }
 
+/// The gold price crossed the threshold the user asked about (once per alert).
+final class GoldCrossedAlert extends Alert {
+  const GoldCrossedAlert(this.rule, this.price, super.shownAt);
+  final GoldAlert rule;
+  final double price;
+}
+
 /// The two buttons of an alert: left (primary) and right.
 enum AlertAction { primary, secondary }
 
@@ -89,6 +100,8 @@ class AppController extends ChangeNotifier {
     required this.calendar,
     this.voice,
     this.settings = const ScheduleSettings(),
+    this.prices = const SamplePriceSource(),
+    this.fxRates = const SampleFxSource(),
     this.heardHold = const Duration(milliseconds: 700),
     this.log = _print,
   }) : _lastInteraction = clock.now();
@@ -98,6 +111,8 @@ class AppController extends ChangeNotifier {
   final CalendarSource calendar;
   final VoiceLink? voice;
   final ScheduleSettings settings;
+  final PriceSource prices;
+  final FxSource fxRates;
 
   /// How long the heard sentence stays on screen before the command runs.
   final Duration heardHold;
@@ -174,6 +189,73 @@ class AppController extends ChangeNotifier {
   /// The VI/EN switch, as saved. English goes through the cloud (Harness, Deepgram); Vietnamese stays on the board.
   String get voiceLang => _state.voiceLang;
 
+  /// Home screen: three columns (first start) or the day strip, as last chosen.
+  StripLayout get layout => _state.layout;
+
+  /// Today's gold so far (sample data in the demo). Recomputed at most every few seconds.
+  PriceSeries get gold {
+    final t = now;
+    final key = t.millisecondsSinceEpoch ~/ 5000;
+    if (_goldKey != key || _gold == null) {
+      _gold = prices.goldToday(t);
+      _goldKey = key;
+    }
+    return _gold!;
+  }
+
+  PriceSeries? _gold;
+  int? _goldKey;
+
+  /// USD/VND sell rate, the last 31 days to today (sample data in the demo). The same all day, so read once a day.
+  PriceSeries get fx {
+    final d = dayOf(now);
+    if (_fxDay != d || _fx == null) {
+      _fx = fxRates.usdVnd(now);
+      _fxDay = d;
+    }
+    return _fx!;
+  }
+
+  PriceSeries? _fx;
+  DateTime? _fxDay;
+
+  /// Yesterday's whole day, for the comparison line.
+  PriceSeries get goldYesterday => prices.goldDay(now.subtract(const Duration(days: 1)));
+
+  /// The gold chart shows yesterday's line too ("so với hôm qua").
+  bool goldCompare = false;
+
+  /// The price alert, if one is set (fired or not).
+  GoldAlert? get goldAlert => _state.goldAlert;
+
+  /// The day strip shows a small gold tile once the chart was opened today, or while a price alert is armed (scenario
+  /// 3: "không xem nữa thì chart thu về một góc"). Not on the columns, which have a gold column of their own.
+  bool get goldMini {
+    if (layout.split) return false;
+    final a = goldAlert;
+    if (a != null && a.firedAt == null) return true;
+    final seen = _goldSeen;
+    return seen != null && sameDay(seen, now);
+  }
+
+  DateTime? _goldSeen;
+
+  /// A timer that ended while the columns are home shows in its own column, not over the whole strip (scenario 5:
+  /// "hết giờ thì báo ngay trong cột của nó"). Its buttons are [alertText]'s and go to [alertAction] as usual.
+  TimerDoneAlert? get timerDoneInColumn {
+    final a = alert;
+    return a is TimerDoneAlert && layout.split && screen == Screen.home ? a : null;
+  }
+
+  /// The day the week view highlights with its free slots ("thứ năm rảnh lúc nào"); null: none.
+  DateTime? freeSlotsDay;
+
+  /// The day opened from the week view (Screen.day).
+  DateTime? openDay;
+
+  /// The deadline asked about ("còn mấy ngày tới hạn …"), shown on the month view.
+  CalendarEvent? countdownTo;
+
   /// The service can take English right now (it has a Harness sign-in); the switch is only shown then.
   bool get englishAvailable => (voice?.ready ?? false) && _voiceLangs.contains('en');
 
@@ -197,7 +279,15 @@ class AppController extends ChangeNotifier {
   Future<void> refreshCalendar() async {
     final day = dayOf(now);
     try {
-      plan = DayPlan(await calendar.fetch(day.subtract(const Duration(days: 1)), day.add(const Duration(days: 8))));
+      // The week view starts on Monday and the month view shows the whole month, so fetch from the earlier of the
+      // two up to the later of next month and a week ahead.
+      final monday = DayPlan.weekOf(day).first;
+      final monthStart = DateTime(day.year, day.month);
+      final from = monday.isBefore(monthStart) ? monday : monthStart;
+      final nextMonth = DateTime(day.year, day.month + 1);
+      final weekAhead = day.add(const Duration(days: 8));
+      final to = nextMonth.isAfter(weekAhead) ? nextMonth : weekAhead;
+      plan = DayPlan(await calendar.fetch(from.isBefore(day) ? from : day.subtract(const Duration(days: 1)), to));
       _fetchedDay = day;
     } catch (e) {
       log('calendar fetch failed: $e');
@@ -266,7 +356,38 @@ class AppController extends ChangeNotifier {
     for (final s in signals) {
       _handle(s, t);
     }
+    _checkGold(t);
     _notify();
+  }
+
+  /// An event ahead whose title contains [query]; failing that, the one sharing the most words with it (at least two),
+  /// since STT often gets one word wrong ("gửi báo cáo" for "gửi báo giá").
+  CalendarEvent? _findAhead(String query, DateTime t) {
+    final exact = plan.findAhead(query, t);
+    if (exact != null) return exact;
+    final words = query.toLowerCase().split(' ').toSet();
+    CalendarEvent? best;
+    var score = 1;
+    for (final e in plan.events) {
+      if (e.start.isBefore(dayOf(t))) continue;
+      final s = e.title.toLowerCase().split(' ').where(words.contains).length;
+      if (s > score) {
+        best = e;
+        score = s;
+      }
+    }
+    return best;
+  }
+
+  void _checkGold(DateTime t) {
+    final rule = _state.goldAlert;
+    if (rule == null || rule.fired) return;
+    final price = gold.last;
+    if (!rule.crossedBy(price)) return;
+    _state.goldAlert = rule.fire(t);
+    _alerts.add(GoldCrossedAlert(rule, price, t));
+    voice?.chime('alert');
+    _save();
   }
 
   void _handle(Signal s, DateTime t) {
@@ -327,6 +448,7 @@ class AppController extends ChangeNotifier {
     switch (c) {
       case StartTimer(:final duration, :final focus):
         _endFocusEarly(t);
+        _alerts.removeWhere((a) => a is TimerDoneAlert); // the old timer's "hết giờ" is answered by the new one
         _state.timer = ActiveTimer(startedAt: t, duration: duration, focus: focus);
         screen = Screen.home;
         flash = focus
@@ -387,6 +509,67 @@ class AppController extends ChangeNotifier {
         screen = Screen.home;
         flash = null;
         askTime = null;
+      case SplitColumns(:final panels):
+        _state.layout = _state.layout.columns(panels);
+        screen = Screen.home;
+        flash = null;
+      case SwapPanel(:final to, :final index, :final from):
+        final l = _state.layout;
+        final i = index ?? (from != null && l.panels.contains(from) ? l.panels.indexOf(from) : l.panels.length ~/ 2);
+        _state.layout = l.withPanel(i, to);
+        screen = Screen.home;
+        flash = null;
+      case SingleColumn():
+        final was = _state.layout;
+        _state.layout = was.single();
+        screen = Screen.home;
+        flash = null;
+        if (was.split) {
+          // "đã lưu bố cục ba cột": the set comes back with "ba cột".
+          final kept = 'đã lưu bố cục ${_countWord(was.panels.length)} cột';
+          final next = plan.next(t);
+          _show(next == null
+              ? _flash('DẢI NGÀY', 'Về một cột', meta: kept, cool: true)
+              : _flash('TIẾP THEO', next.title, meta: '${_eventMeta(next, t)} · $kept', cool: true));
+        }
+      case ShowGold():
+        screen = Screen.gold;
+        _goldSeen = t;
+        goldCompare = false;
+        flash = null;
+      case CompareGoldYesterday():
+        screen = Screen.gold;
+        _goldSeen = t;
+        goldCompare = true;
+        flash = null;
+      case SetGoldAlert(:final price):
+        final now = gold.last;
+        _state.goldAlert = GoldAlert.at(price, price: now, now: t);
+        _show(_flash('ĐÃ ĐẶT BÁO GIÁ', 'Vàng ${now < price ? 'vượt' : 'xuống dưới'} ${viPrice(price)}',
+            meta: 'Giá bây giờ ${viPrice(now)} · báo một lần', cool: true));
+      case BusyAt(:final at):
+        _show(_busyFlash(at, t));
+      case ShowWeek():
+        screen = Screen.week;
+        freeSlotsDay = null;
+        flash = null;
+      case FreeSlots(:final weekday):
+        screen = Screen.week;
+        freeSlotsDay = weekdayAhead(t, weekday);
+        flash = null;
+      case ShowMonth():
+        screen = Screen.month;
+        countdownTo = null;
+        flash = null;
+      case DaysUntil(:final query):
+        final e = _findAhead(query, t);
+        if (e == null) {
+          _show(_flash('KHÔNG THẤY', 'Không có “$query” trong lịch', meta: 'Thử nói đúng tên trong lịch'));
+        } else {
+          countdownTo = e;
+          screen = Screen.month;
+          flash = null;
+        }
       case NotSupported(:final what):
         _show(_flash('CHƯA LÀM ĐƯỢC', what));
     }
@@ -482,6 +665,9 @@ class AppController extends ChangeNotifier {
     _touch(t);
     _alerts.removeAt(0);
     switch (a) {
+      case TimerDoneAlert(:final timer) when action == AlertAction.primary && layout.split && !timer.focus:
+        // "+10 phút" in the timer column; the columns stay as they are.
+        _state.timer = ActiveTimer(startedAt: t, duration: const Duration(minutes: 10), focus: false);
       case TimerDoneAlert(:final timer) when action == AlertAction.primary:
         // focus: "Nghỉ 5 phút"; plain timer: "Thêm 5 phút"
         _state.timer = ActiveTimer(startedAt: t, duration: const Duration(minutes: 5), focus: false);
@@ -491,6 +677,12 @@ class AppController extends ChangeNotifier {
             : _flash('THÊM 5 PHÚT', 'Kết thúc lúc ${hhmm(t.add(const Duration(minutes: 5)))}', cool: true));
       case TimerDoneAlert():
         break;
+      case GoldCrossedAlert() when action == AlertAction.primary:
+        screen = Screen.gold; // "Xem chart"
+        _goldSeen = t;
+        goldCompare = false;
+      case GoldCrossedAlert():
+        _state.goldAlert = null; // "Tắt báo"
       case ReminderAlert(:final reminder):
         final current = _state.reminders.where((r) => r.id == reminder.id).firstOrNull ?? reminder;
         _replaceReminder(action == AlertAction.primary
@@ -521,6 +713,14 @@ class AppController extends ChangeNotifier {
   void swipeUp() {
     _touch(now);
     if (screen == Screen.home || screen == Screen.recap) screen = Screen.tomorrow;
+    _notify();
+  }
+
+  /// A tap on a day of the week view: that day's events.
+  void openWeekDay(DateTime d) {
+    _touch(now);
+    openDay = dayOf(d);
+    screen = Screen.day;
     _notify();
   }
 
@@ -605,6 +805,26 @@ class AppController extends ChangeNotifier {
 
   void _touch(DateTime t) => _lastInteraction = t;
 
+  /// What is on in the hour from [at]: the first event there, or free and what comes after.
+  Flash _busyFlash(DateTime at, DateTime t) {
+    final end = at.add(const Duration(hours: 1));
+    final day = plan.on(at);
+    final hits = day.where((e) => e.start.isBefore(end) && e.end.isAfter(at)).toList();
+    final when = sameDay(at, t)
+        ? 'LÚC ${hhmm(at)}'
+        : sameDay(at, t.add(const Duration(days: 1)))
+            ? 'MAI ${hhmm(at)}'
+            : '${shortDate(at).toUpperCase()} ${hhmm(at)}';
+    if (hits.isNotEmpty) {
+      final e = hits.first;
+      final more = hits.length > 1 ? ' · thêm ${hits.length - 1} lịch' : '';
+      return _flash('$when · CÓ LỊCH', e.title, meta: '${hhmm(e.start)}–${hhmm(e.end)}$more');
+    }
+    final after = day.where((e) => !e.start.isBefore(end)).firstOrNull;
+    return _flash('$when · RẢNH', 'Không có lịch',
+        meta: after == null ? 'Sau đó cũng trống' : 'Tiếp theo ${hhmm(after.start)} ${after.title}', cool: true);
+  }
+
   Flash _flash(String eyebrow, String title, {String meta = '', bool cool = false}) =>
       Flash(eyebrow: eyebrow, title: title, meta: meta, cool: cool, until: now.add(flashFor));
 
@@ -628,6 +848,8 @@ class AppController extends ChangeNotifier {
   }
 
   String _id(String prefix, DateTime t) => '$prefix${t.microsecondsSinceEpoch}-${_state.notes.length + _state.reminders.length}';
+
+  static String _countWord(int n) => const {2: 'hai', 3: 'ba'}[n] ?? '$n';
 
   static String _eventMeta(CalendarEvent e, DateTime t) =>
       [hhmm(e.start), 'còn ${durationVi(e.start.difference(t))}', if (e.details.isNotEmpty) e.details].join(' · ');

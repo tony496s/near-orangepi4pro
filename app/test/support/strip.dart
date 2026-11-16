@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:near_app/app/app_controller.dart';
 import 'package:near_app/core/clock.dart';
 import 'package:near_app/data/calendar_source.dart';
+import 'package:near_app/domain/intent/commands.dart';
 import 'package:near_app/ui/strip_app.dart';
 import 'package:near_app/voice/voice_client.dart';
 
@@ -16,7 +17,10 @@ class StripHarness {
   final FakeVoice voice;
   final AppController c;
 
-  static Future<StripHarness> pump(WidgetTester tester, {required DateTime at, DateTime? launchedAt}) async {
+  /// [columns]: start on the three-column home screen, as a first start does. Most tests are about the day strip, so
+  /// they start on one column.
+  static Future<StripHarness> pump(WidgetTester tester,
+      {required DateTime at, DateTime? launchedAt, bool columns = false}) async {
     tester.view.physicalSize = const Size(1480, 320);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -31,6 +35,10 @@ class StripHarness {
       log: (_) {},
     );
     await tester.runAsync(() => c.start(ticker: false));
+    if (!columns) {
+      c.run(const SingleColumn());
+      c.flash = null; // the "đã lưu bố cục" note is for a spoken switch, not this setup
+    }
     await tester.pumpWidget(StripApp(controller: c));
     await tester.pump(const Duration(seconds: 1));
     return StripHarness(tester, clock, voice, c);

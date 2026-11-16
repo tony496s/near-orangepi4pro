@@ -1,4 +1,7 @@
+import '../../core/clock.dart' show sameDay;
+import '../strip_layout.dart';
 import 'commands.dart';
+import 'vi_numbers.dart';
 import 'vi_text.dart';
 import 'vi_time.dart';
 
@@ -12,6 +15,9 @@ Command? parseCommand(String text, DateTime now) {
   return _note(t) ??
       _reminder(t, now) ??
       _screen(t) ??
+      _layout(t) ??
+      _gold(t) ??
+      _calendar(t, now) ??
       _unsupported(t) ??
       _cancelTimer(t) ??
       _timeLeft(t) ??
@@ -107,6 +113,167 @@ Command? _reminder(List<String> t, DateTime now) {
 Command? _screen(List<String> t) {
   if (hasAny(t, ['tắt màn', 'chế độ đêm', 'đi ngủ', 'chúc ngủ ngon'])) return const ScreenOff();
   if (hasAny(t, ['bật màn', 'mở màn', 'sáng màn'])) return const ScreenOn();
+  return null;
+}
+
+/// "chia màn ba cột (lịch, giá vàng, hẹn giờ)", "mở ba cột", "về một cột", "về dải ngày". Checked before "về" alone
+/// (go home) and before the timer rule, which would take "hẹn giờ" inside the list of columns.
+Command? _layout(List<String> t) {
+  final swap = _swapPanel(t);
+  if (swap != null) return swap;
+  if (hasAny(t, ['một cột', '1 cột', 'dải ngày', 'bỏ chia', 'gộp cột'])) return const SingleColumn();
+  if (hasAny(t, ['chia màn', 'chia cột', 'ba cột', '3 cột', 'hai cột', '2 cột', 'nhiều cột'])) {
+    final named = _panelsIn(t);
+    return SplitColumns(named.length >= 2 ? named : null);
+  }
+  return null;
+}
+
+/// Words for each panel, longest first where they overlap ("tỷ giá" before "giá vàng" is read at "tỷ").
+const _panelWords = <(List<String>, Panel)>[
+  (['tỷ', 'giá'], Panel.fx),
+  (['tỉ', 'giá'], Panel.fx),
+  (['đô', 'la'], Panel.fx),
+  (['ngoại', 'tệ'], Panel.fx),
+  (['usd'], Panel.fx),
+  (['đô'], Panel.fx),
+  (['giá', 'vàng'], Panel.gold),
+  (['vàng'], Panel.gold),
+  (['lịch'], Panel.calendar),
+  (['hẹn', 'giờ'], Panel.timer),
+  (['đếm', 'ngược'], Panel.timer),
+  (['bấm', 'giờ'], Panel.timer),
+];
+
+/// The panels named in [t], in the order said, each once.
+List<Panel> _panelsIn(List<String> t) {
+  final out = <Panel>[];
+  var i = 0;
+  while (i < t.length) {
+    var step = 1;
+    for (final (words, panel) in _panelWords) {
+      if (i + words.length <= t.length && Iterable<int>.generate(words.length).every((k) => t[i + k] == words[k])) {
+        if (!out.contains(panel)) out.add(panel);
+        step = words.length;
+        break;
+      }
+    }
+    i += step;
+  }
+  return out;
+}
+
+/// "cột giữa" = 1, "cột trái"/"cột đầu"/"cột một" = 0, "cột phải"/"cột cuối" = -1 (the last), "cột hai" = 1, "cột ba"
+/// = 2; "bên trái"/"bên phải" too. Null when no column is named. "ba cột" (how many) is not a position.
+int? _columnIndex(List<String> t) {
+  for (var k = 0; k < t.length; k++) {
+    if (t[k] != 'cột' && t[k] != 'bên') continue;
+    var i = k + 1;
+    if (i < t.length && t[i] == 'thứ') i++;
+    if (i >= t.length) continue;
+    final w = t[i];
+    if (w == 'giữa') return 1;
+    if (w == 'trái' || w == 'đầu') return 0;
+    if (w == 'phải' || w == 'cuối') return -1;
+    if (t[k] == 'cột') {
+      if (w == 'nhất') return 0;
+      final n = readNumber(t, i);
+      if (n != null && n.value >= 1 && n.value <= StripLayout.maxColumns) return n.value - 1;
+    }
+  }
+  return null;
+}
+
+/// "đổi cột giữa sang tỷ giá đô la", "chuyển cột phải thành giá vàng", "đổi vàng sang tỷ giá". The new panel follows
+/// "sang"/"thành"/"bằng"; "đổi lịch họp sang thứ năm" names no panel there and is left to the other rules.
+Command? _swapPanel(List<String> t) {
+  if (!hasAny(t, ['đổi', 'chuyển', 'thay'])) return null;
+  final cut = t.indexWhere((w) => w == 'sang' || w == 'thành' || w == 'bằng');
+  if (cut < 0) return null;
+  final to = _panelsIn(t.sublist(cut + 1));
+  if (to.isEmpty) return null;
+  final before = t.sublist(0, cut);
+  final index = _columnIndex(before);
+  final from = _panelsIn(before);
+  if (index == null && from.isEmpty && !before.contains('cột')) return null;
+  return SwapPanel(to.first, index: index, from: index == null ? from.firstOrNull : null);
+}
+
+/// "mở chart vàng" (Zipformer may write "chát"), "so với hôm qua thì sao", "báo anh khi vàng vượt 4.150 đô".
+Command? _gold(List<String> t) {
+  final gold = hasPhrase(t, 'vàng');
+  if (gold && hasAny(t, ['báo', 'canh'])) {
+    for (var i = 0; i < t.length; i++) {
+      if (!const {'vượt', 'qua', 'quá', 'lên', 'tới', 'dưới', 'xuống'}.contains(t[i])) continue;
+      var j = i + 1;
+      while (j < t.length && const {'qua', 'quá', 'mức', 'ngưỡng', 'lên', 'tới', 'dưới', 'xuống'}.contains(t[j])) {
+        j++;
+      }
+      final n = readNumber(t, j);
+      if (n != null && n.value >= 1000) return SetGoldAlert(n.value.toDouble());
+    }
+  }
+  if (hasAny(t, ['so với hôm qua', 'so hôm qua', 'hôm qua thì sao', 'hôm qua thế nào', 'hôm qua ra sao'])) {
+    return const CompareGoldYesterday();
+  }
+  if (gold && hasAny(t, ['chart', 'chát', 'chạt', 'biểu đồ', 'đồ thị', 'giá vàng', 'mở vàng', 'xem vàng'])) {
+    return const ShowGold();
+  }
+  return null;
+}
+
+const _weekdays = {
+  'thứ hai': DateTime.monday, 'thứ 2': DateTime.monday,
+  'thứ ba': DateTime.tuesday, 'thứ 3': DateTime.tuesday,
+  'thứ tư': DateTime.wednesday, 'thứ 4': DateTime.wednesday,
+  'thứ năm': DateTime.thursday, 'thứ 5': DateTime.thursday,
+  'thứ sáu': DateTime.friday, 'thứ 6': DateTime.friday,
+  'thứ bảy': DateTime.saturday, 'thứ 7': DateTime.saturday,
+  'chủ nhật': DateTime.sunday,
+};
+
+/// "tuần này có gì", "thứ năm rảnh lúc nào", "mở lịch tháng này", "còn mấy ngày tới hạn gửi báo giá",
+/// "sáu giờ chiều nay có họp không".
+Command? _calendar(List<String> t, DateTime now) {
+  final busy = _busyAt(t, now);
+  if (busy != null) return busy;
+  if (hasAny(t, ['còn mấy ngày', 'còn bao nhiêu ngày', 'mấy ngày nữa', 'bao nhiêu ngày nữa'])) {
+    for (final w in const ['tới hạn', 'đến hạn', 'tới', 'đến', 'hạn']) {
+      final k = indexOfPhrase(t, w.split(' '));
+      if (k < 0) continue;
+      final q = t.sublist(k + w.split(' ').length).where((x) => !const {'nữa', 'là', 'không', 'vậy', 'ạ'}.contains(x));
+      if (q.isNotEmpty) return DaysUntil(q.join(' '));
+    }
+    return null;
+  }
+  if (hasAny(t, ['rảnh', 'trống lịch', 'lúc nào trống'])) {
+    for (final MapEntry(:key, :value) in _weekdays.entries) {
+      if (hasPhrase(t, key)) return FreeSlots(value);
+    }
+  }
+  if (hasAny(t, ['lịch tháng', 'tháng này'])) return const ShowMonth();
+  if (hasAny(t, ['tuần này', 'lịch tuần', 'cả tuần'])) return const ShowWeek();
+  return null;
+}
+
+const _busyWords = [
+  'có họp', 'có cuộc họp', 'có lịch', 'có hẹn', 'có bận', 'bận không', 'rảnh không', 'có rảnh', 'có gì', 'có việc',
+];
+
+/// "sáu giờ chiều nay có họp không", "3 giờ có lịch gì không", "mai 9 giờ có bận không". Not with a weekday ("thứ năm
+/// rảnh lúc nào" is [FreeSlots]) and not for timers ("có hẹn giờ nào không" has no clock time).
+Command? _busyAt(List<String> t, DateTime now) {
+  if (!hasAny(t, _busyWords)) return null;
+  if (_weekdays.keys.any((k) => hasPhrase(t, k))) return null;
+  for (var i = 0; i < t.length; i++) {
+    final c = readClockTime(t, i);
+    if (c == null) continue;
+    final tomorrow = hasAny(t, ['ngày mai', 'sáng mai', 'chiều mai', 'tối mai', 'mai']);
+    var at = resolveClockTime(c, now, tomorrow: tomorrow);
+    // "sáu giờ sáng nay" asked in the afternoon is about this morning, not tomorrow's.
+    if (!tomorrow && hasPhrase(t, 'nay') && !sameDay(at, now)) at = at.subtract(const Duration(days: 1));
+    return BusyAt(at);
+  }
   return null;
 }
 

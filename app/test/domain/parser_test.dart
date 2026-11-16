@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:near_app/domain/intent/commands.dart';
 import 'package:near_app/domain/intent/parser.dart';
+import 'package:near_app/domain/strip_layout.dart';
 
 void main() {
   final now = DateTime(2026, 11, 16, 14, 12);
@@ -99,6 +100,75 @@ void main() {
       expect(p('dừng tập trung'), isA<CancelTimer>());
       expect(p('huỷ hẹn giờ'), isA<CancelTimer>(), reason: 'old tone placement');
       expect(p('hẹn giờ'), isNull, reason: 'no duration');
+    });
+
+    test('home layout: three columns or one', () {
+      expect(p('chia màn ba cột: lịch, giá vàng, hẹn giờ'), isA<SplitColumns>(), reason: '"hẹn giờ" in the list is a column');
+      expect(p('CHIA MÀN BA CỘT LỊCH GIÁ VÀNG HẸN GIỜ'), isA<SplitColumns>());
+      expect(p('mở ba cột'), isA<SplitColumns>());
+      expect(p('về một cột'), isA<SingleColumn>(), reason: 'not "về" = go home');
+      expect(p('VỀ MỘT CỘT'), isA<SingleColumn>());
+      expect(p('về dải ngày'), isA<SingleColumn>());
+      expect(p('quay lại'), isA<GoHome>());
+      expect(p('hẹn giờ 45 phút'), const StartTimer(Duration(minutes: 45), focus: false));
+    });
+
+    test('naming the columns: the set in the order said', () {
+      expect(p('chia màn ba cột: lịch, giá vàng, hẹn giờ'), const SplitColumns([Panel.calendar, Panel.gold, Panel.timer]));
+      expect(p('chia màn hai cột lịch và tỷ giá'), const SplitColumns([Panel.calendar, Panel.fx]));
+      expect(p('chia màn ba cột hẹn giờ vàng lịch'), const SplitColumns([Panel.timer, Panel.gold, Panel.calendar]));
+      expect(p('mở ba cột'), const SplitColumns(), reason: 'no names: the remembered set');
+      expect(p('chia màn ba cột lịch'), const SplitColumns(), reason: 'one name is not a set');
+    });
+
+    test('changing one column: "đổi cột giữa sang tỷ giá đô la"', () {
+      expect(p('đổi cột giữa sang tỷ giá đô la'), const SwapPanel(Panel.fx, index: 1));
+      expect(p('ĐỔI CỘT GIỮA SANG TỈ GIÁ ĐÔ LA'), const SwapPanel(Panel.fx, index: 1), reason: 'STT writes "tỉ"');
+      expect(p('đổi cột giữa sang đô la'), const SwapPanel(Panel.fx, index: 1));
+      expect(p('chuyển cột phải thành giá vàng'), const SwapPanel(Panel.gold, index: -1));
+      expect(p('đổi cột thứ nhất sang hẹn giờ'), const SwapPanel(Panel.timer, index: 0));
+      expect(p('đổi cột ba sang lịch'), const SwapPanel(Panel.calendar, index: 2));
+      expect(p('đổi vàng sang tỷ giá'), const SwapPanel(Panel.fx, from: Panel.gold));
+      expect(p('đổi cột sang tỷ giá'), const SwapPanel(Panel.fx));
+      expect(p('đổi lịch họp sang thứ năm'), isA<NotSupported>(), reason: 'no panel after "sang": moving a meeting');
+      expect(p('chuyển cuộc họp sang ba giờ'), isNot(isA<SwapPanel>()));
+      expect(p('báo anh khi vàng vượt 4.150 đô'), const SetGoldAlert(4150), reason: 'not a column');
+    });
+
+    test('gold (scenario 3)', () {
+      expect(p('mở chart vàng sáng nay'), isA<ShowGold>());
+      expect(p('MỞ CHÁT VÀNG'), isA<ShowGold>(), reason: 'Zipformer spelling');
+      expect(p('mở biểu đồ vàng'), isA<ShowGold>());
+      expect(p('so với hôm qua thì sao'), isA<CompareGoldYesterday>());
+      expect(p('báo anh khi vàng vượt 4.150 đô'), const SetGoldAlert(4150));
+      expect(p('BÁO ANH KHI VÀNG VƯỢT BỐN NGHÌN MỘT TRĂM NĂM MƯƠI ĐÔ'), const SetGoldAlert(4150));
+      expect(p('báo khi vàng xuống dưới 4100'), const SetGoldAlert(4100));
+      expect(p('ghi lại mua vàng cho mẹ'), isA<AddNote>(), reason: 'a note keeps its words');
+    });
+
+    test('week and month (scenario 4)', () {
+      expect(p('tuần này anh có gì'), isA<ShowWeek>());
+      expect(p('TUẦN NÀY ANH CÓ GÌ'), isA<ShowWeek>());
+      expect(p('thứ năm rảnh lúc nào'), const FreeSlots(DateTime.thursday));
+      expect(p('THỨ SÁU RẢNH LÚC NÀO'), const FreeSlots(DateTime.friday));
+      expect(p('mở lịch tháng này'), isA<ShowMonth>());
+      expect(p('còn mấy ngày tới hạn gửi báo giá'), const DaysUntil('gửi báo giá'));
+      expect(p('CÒN MẤY NGÀY NỮA ĐẾN HẠN GỬI BÁO GIÁ'), const DaysUntil('gửi báo giá'));
+      expect(p('lịch chiều nay có gì'), isA<WhatsNext>(), reason: 'today is still "what is next"');
+      expect(p('nhắc anh gọi chị Lan thứ năm'), isNot(isA<FreeSlots>()));
+    });
+
+    test('busy at a time: "sáu giờ chiều nay có họp không"', () {
+      // now is 14:12 on Monday 16/11
+      expect(p('SÁU GIỜ CHIỀU NAY CÓ HỌP KHÔNG'), BusyAt(DateTime(2026, 11, 16, 18)));
+      expect(p('3 giờ có lịch gì không'), BusyAt(DateTime(2026, 11, 16, 15)));
+      expect(p('mai 9 giờ có bận không'), BusyAt(DateTime(2026, 11, 17, 9)));
+      expect(p('chín giờ sáng mai có họp không'), BusyAt(DateTime(2026, 11, 17, 9)));
+      expect(p('sáu giờ sáng nay có họp không'), BusyAt(DateTime(2026, 11, 16, 6)), reason: 'this morning, not tomorrow');
+      expect(p('thứ năm 3 giờ rảnh không'), isNot(isA<BusyAt>()), reason: 'a weekday is not today');
+      expect(p('chiều nay có họp không'), isNot(isA<BusyAt>()), reason: 'no clock time');
+      expect(p('nhắc anh 3 giờ chiều xem có họp không'), isA<AddReminder>(), reason: 'reminders come first');
+      expect(p('có hẹn giờ nào không'), isNot(isA<BusyAt>()));
     });
 
     test('views', () {
