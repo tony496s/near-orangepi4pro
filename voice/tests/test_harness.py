@@ -124,6 +124,55 @@ class HarnessAuthTest(AuthTestBase):
         self.write(accessToken="hna_signed_in_again", _bump=5)  # tools/harness_login.py ran again
         self.assertEqual(auth.token(), "hna_signed_in_again")
 
+    def test_a_refused_sign_in_is_not_available_until_the_file_is_replaced(self):
+        self.write(expiresAt=0)
+        auth = self.auth(FakePost(fail(401, "REFRESH_TOKEN_INVALID")))
+        stt = HarnessStt(auth, API, "en", post=FakePost())
+        self.assertTrue(auth.available())
+        with self.assertRaises(AuthError):
+            auth.token()
+        self.assertFalse(auth.available())
+        self.assertFalse(stt.available(), "English must leave \"ready\" while the sign-in is refused")
+        self.write(accessToken="hna_signed_in_again", _bump=5)  # tools/harness_login.py ran again
+        self.assertTrue(auth.available())
+        self.assertTrue(stt.available())
+
+    def test_a_sign_in_copied_in_during_a_refresh_is_not_overwritten(self):
+        self.write(expiresAt=0)
+        test = self
+
+        class CopiedInMeanwhile(FakePost):
+            def __call__(self, *args):
+                test.write(accessToken="hna_copied_in", refreshToken="hnr_copied_in", _bump=5)
+                return super().__call__(*args)
+
+        post = CopiedInMeanwhile(ok(token="hna_new", refreshToken="hnr_2", expiresIn=3600))
+        auth = self.auth(post)
+        with self.assertLogs("near_voice.harness", "INFO") as logs:
+            self.assertEqual(auth.token(), "hna_new")  # this call still gets the renewed token
+        self.assertTrue(any("replaced during the token refresh" in m for m in logs.output), logs.output)
+        saved = self.saved()
+        self.assertEqual((saved["accessToken"], saved["refreshToken"]), ("hna_copied_in", "hnr_copied_in"))
+        self.assertEqual(auth.token(), "hna_copied_in")  # the new file is read again, and it is fresh
+        self.assertEqual(len(post.calls), 1)
+
+    def test_a_sign_in_removed_during_a_refresh_is_not_written_back(self):
+        self.write(expiresAt=0)
+        test = self
+
+        class RemovedMeanwhile(FakePost):
+            def __call__(self, *args):
+                os.remove(test.path)
+                return super().__call__(*args)
+
+        auth = self.auth(RemovedMeanwhile(ok(token="hna_new", expiresIn=3600)))
+        with self.assertLogs("near_voice.harness", "INFO"):
+            self.assertEqual(auth.token(), "hna_new")
+        self.assertFalse(os.path.exists(self.path))
+        with self.assertRaises(AuthError) as ctx:
+            auth.token()
+        self.assertEqual(ctx.exception.code, "MISSING")
+
     def test_sign_in_again_and_outages_have_their_own_codes(self):
         for answer, code in [(fail(403, "SIGN_IN_AGAIN"), "SIGN_IN_AGAIN"),
                              (fail(503, "AUTH_SERVICE_UNAVAILABLE"), "UNAVAILABLE"), ((0, {}), "UNAVAILABLE"),

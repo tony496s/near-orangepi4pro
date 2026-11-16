@@ -5,9 +5,11 @@ Phase 0 E5 measured this model on the user's voice: the best setting (zh-en 3M, 
 (wake -> listen -> command) on the board; it is not a finished wake word (that needs a trained model, plan step C3).
 
 The spotter runs in a thread of its own: a decode (about 8% of an A76 core in total) never holds up the mic, the
-event loop or the protocol. It is fed only while the server wants spotting: an app is connected and has not turned
-it off, and no listen is open or waiting for its words. Each time feeding starts again the stream starts fresh, so a
-keyword is never pieced together across a gap.
+event loop or the protocol. Frames are queued for it only while the server wants spotting: an app is connected and has
+not turned it off, and no listen is open or waiting for its words. The spotter may lag behind the queue, so a hit can
+come in after spotting stopped being wanted; the server ignores it then. Each time feeding starts again, the frames
+still queued from before the gap are dropped and the stream starts fresh, so a keyword is never pieced together across
+a gap.
 """
 
 from __future__ import annotations
@@ -154,8 +156,28 @@ class WakeWorker:
             return
         if not self._feeding:
             self._feeding = True
-            self._put(_RESET)
+            self._restart()
         self._put(frame)
+
+    def _restart(self) -> None:
+        """Feeding starts (again, after a gap). The frames still queued from before it are of no use, so they go first:
+        the reset marker then always fits (only on_frame puts items, apart from stop())."""
+        stale = 0
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if item is _STOP:  # stop() is under way: keep its marker, nothing more will be spotted
+                self._queue.put_nowait(_STOP)
+                return
+            stale += item is not _RESET
+        if stale:
+            log.debug("wake: %d frames from before the gap dropped", stale)
+        try:
+            self._queue.put_nowait(_RESET)
+        except queue.Full:  # only when stop() put its marker in meanwhile: nothing more will be spotted
+            pass
 
     def _put(self, item: object) -> None:
         try:

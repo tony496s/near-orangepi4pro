@@ -1,5 +1,5 @@
 import 'commands.dart';
-import 'vi_text.dart' show hasAny, hasPhrase, indexOfPhrase;
+import 'vi_text.dart' show hasAny, indexOfPhrase;
 import 'vi_time.dart' show ClockTime, DayPart, resolveClockTime;
 
 /// English commands, for the EN side of the VI/EN switch: the same [Command]s as `parseCommand`, read from English.
@@ -10,7 +10,9 @@ import 'vi_time.dart' show ClockTime, DayPart, resolveClockTime;
 Command? parseEnglishCommand(String text, DateTime now) {
   final raw = enTokenize(text);
   if (raw.isEmpty) return null;
-  final t = [for (final w in raw) w.toLowerCase()];
+  // Matching words drop apostrophes ("Lan's" -> "lans", "o'clock" -> "oclock"), one per raw word: an index in one
+  // list is the same word in the other.
+  final t = [for (final w in raw) w.toLowerCase().replaceAll("'", '')];
   return _note(t, raw) ??
       _reminder(t, raw, now) ??
       _screen(t) ??
@@ -24,15 +26,16 @@ Command? parseEnglishCommand(String text, DateTime now) {
 /// Example sentences shown when an English sentence is not understood.
 const englishExamples = ['Set a timer for 25 minutes', 'Add a note: buy milk', 'Remind me to call Lan at 3 pm'];
 
-/// Words in their original case, punctuation removed: "p.m." -> "pm", "3:30" -> "3 30", "10min" -> "10 min",
-/// "what's" -> "what is", "twenty-five" -> "twenty five", and a leading "Hey Near" dropped.
+/// Words in their original case, punctuation removed: "p.m." -> "pm", "10min" -> "10 min", "what's" -> "what is",
+/// "twenty-five" -> "twenty five", and a leading "Hey Near" dropped. A ":", "." or "-" between digits stays, so
+/// "3:30", "1.5" and "555-1234" are one word each, and so does an apostrophe inside a word ("Lan's").
 List<String> enTokenize(String text) {
   var s = text.replaceAll('’', "'");
   s = s.replaceAllMapped(RegExp(r'\b([ap])\.\s?m\b\.?', caseSensitive: false), (m) => ' ${m[1]!.toLowerCase()}m ');
-  s = s.replaceAllMapped(RegExp(r'(\d{1,2}):(\d{2})\b'), (m) => ' ${m[1]} ${m[2]} ');
   s = s.replaceAllMapped(RegExp(r'(\d)(am|pm|min|mins|h|hr|hrs)\b', caseSensitive: false), (m) => '${m[1]} ${m[2]}');
   s = s.replaceAllMapped(RegExp(r"\b(what|it|that|there|here|how|who)'s\b", caseSensitive: false), (m) => '${m[1]} is');
-  s = s.replaceAll(RegExp(r'''[,.!?;:"“”‘()\[\]…\-–—/]'''), ' ').replaceAll("'", '');
+  s = s.replaceAll(RegExp(r'''(?<!\d)[.:\-]|[.:\-](?!\d)|[,!?;"“”‘()\[\]…–—/]'''), ' ');
+  s = s.replaceAll(RegExp(r"(?<![\p{L}\d])'|'(?!\p{L})", unicode: true), ' ');
   final tokens = s.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
   for (final p in const [
     ['hey', 'near'],
@@ -84,11 +87,22 @@ const _hourUnits = {'hour', 'hours', 'hr', 'hrs', 'h'};
 const _minuteUnits = {'minute', 'minutes', 'min', 'mins'};
 const _secondUnits = {'second', 'seconds', 'sec', 'secs'};
 
+final _decimal = RegExp(r'^\d+\.\d+$');
+
 /// A duration at [i]: "10 minutes", "an hour", "1 hour and 30 minutes", "an hour and a half", "half an hour",
-/// "90 seconds", "a 10 minute" (as in "a 10 minute timer").
+/// "90 seconds", "a 10 minute" (as in "a 10 minute timer"), "1.5 hours" (rounded to the second).
 ({Duration duration, int length})? readEnDuration(List<String> t, int i) {
   if (indexOfPhrase(t, const ['half', 'an', 'hour'], i) == i) return (duration: const Duration(minutes: 30), length: 3);
   if (indexOfPhrase(t, const ['half', 'hour'], i) == i) return (duration: const Duration(minutes: 30), length: 2);
+  if (i < t.length && _decimal.hasMatch(t[i])) {
+    final seconds = switch (i + 1 < t.length ? t[i + 1] : '') {
+      final u when _hourUnits.contains(u) => 3600,
+      final u when _minuteUnits.contains(u) => 60,
+      final u when _secondUnits.contains(u) => 1,
+      _ => 0,
+    };
+    return seconds == 0 ? null : (duration: Duration(seconds: (double.parse(t[i]) * seconds).round()), length: 2);
+  }
   final n = readEnNumber(t, i, article: true);
   if (n == null) return null;
   var j = i + n.length;
@@ -113,8 +127,11 @@ const _secondUnits = {'second', 'seconds', 'sec', 'secs'};
   return null;
 }
 
-/// A clock time at [i]: "3 pm", "3 30 pm" ("3:30 PM"), "15 00", "8 oclock", "half past 3", "quarter to 4", "noon",
-/// "midnight", "8 in the evening". A bare number counts only with [bare] (after "at": "at 3").
+final _hourMinute = RegExp(r'^(\d{1,2})([:.])(\d{2})$');
+
+/// A clock time at [i]: "3 pm", "3:30 pm", "3 30 pm" ("three thirty pm"), "15:00", "8 oclock", "half past 3",
+/// "quarter to 4", "noon", "midnight", "8 in the evening". A bare number counts only with [bare] (after "at": "at 3"),
+/// and so does "3.30": "pay Lan 2.50" is no time.
 ClockTime? readEnClock(List<String> t, int i, {bool bare = false}) {
   if (i >= t.length) return null;
   if (t[i] == 'noon' || t[i] == 'midday') return (hour: 12, minute: 0, part: DayPart.noon, length: 1);
@@ -131,20 +148,30 @@ ClockTime? readEnClock(List<String> t, int i, {bool bare = false}) {
     j += 2;
     past = 1;
   }
-  final h = readEnNumber(t, j);
-  if (h == null || h.value < 0 || h.value > 24) return null;
-  var hour = h.value;
-  j += h.length;
+  int hour;
   var marked = past == 1;
-  if (past == 0) {
-    final m = readEnNumber(t, j);
-    if (m != null && m.value < 60 && (t[j].length == 2 || m.value >= 10)) {
-      minute = m.value;
-      j += m.length;
-      marked = true;
-    } else if (j < t.length && (t[j] == 'oclock')) {
-      j++;
-      marked = true;
+  final hm = past == 0 ? _hourMinute.firstMatch(t[j]) : null;
+  if (hm != null && (hm[2] == ':' || bare)) {
+    hour = int.parse(hm[1]!);
+    minute = int.parse(hm[3]!);
+    if (hour > 24 || minute > 59) return null;
+    j++;
+    marked = true;
+  } else {
+    final h = readEnNumber(t, j);
+    if (h == null || h.value < 0 || h.value > 24) return null;
+    hour = h.value;
+    j += h.length;
+    if (past == 0) {
+      final m = readEnNumber(t, j);
+      if (m != null && m.value < 60 && (t[j].length == 2 || m.value >= 10)) {
+        minute = m.value;
+        j += m.length;
+        marked = true;
+      } else if (j < t.length && (t[j] == 'oclock')) {
+        j++;
+        marked = true;
+      }
     }
   }
   if (minute < 0) {
@@ -170,6 +197,14 @@ ClockTime? readEnClock(List<String> t, int i, {bool bare = false}) {
 // ---------------------------------------------------------------- rules
 
 const _parts = {'morning': DayPart.morning, 'afternoon': DayPart.afternoon, 'evening': DayPart.evening};
+
+/// Where "this morning", "this afternoon" or "this evening" starts in [t], or -1.
+int _thisPartAt(List<String> t) {
+  for (var i = 0; i + 1 < t.length; i++) {
+    if (t[i] == 'this' && _parts.containsKey(t[i + 1])) return i;
+  }
+  return -1;
+}
 
 const _notePrefixes = [
   ['add', 'a', 'note'],
@@ -217,6 +252,13 @@ Command? _reminder(List<String> t, List<String> raw, DateTime now) {
     tomorrowPart = tm + 1 < body.length ? _parts[body[tm + 1]] : null;
     drop(tm, tomorrowPart == null ? 1 : 2);
   }
+  // "tomorrow evening at 8", "tonight at 8", "at 7 this evening": a part of the day said apart from the clock time,
+  // used when the clock time has no am/pm or part of its own.
+  final thisPart = _thisPartAt(body);
+  final namedPart =
+      tomorrowPart ??
+      (body.contains('tonight') ? DayPart.evening : null) ??
+      (thisPart >= 0 ? _parts[body[thisPart + 1]] : null);
   DateTime? at;
   for (var i = 0; i < body.length && at == null; i++) {
     final w = body[i];
@@ -237,7 +279,10 @@ Command? _reminder(List<String> t, List<String> raw, DateTime now) {
     final lead = w == 'at' || w == 'by' ? 1 : 0;
     final c = readEnClock(body, i + lead, bare: lead == 1);
     if (c != null) {
-      at = resolveClockTime(c, now, tomorrow: tomorrow);
+      final clock = c.part == null && namedPart != null
+          ? (hour: c.hour, minute: c.minute, part: namedPart, length: c.length)
+          : c;
+      at = resolveClockTime(clock, now, tomorrow: tomorrow);
       drop(i, lead + c.length);
     }
   }
@@ -260,8 +305,8 @@ Command? _reminder(List<String> t, List<String> raw, DateTime now) {
       final i = body.indexOf(w);
       if (i >= 0) drop(i, 1);
     }
-    final i = body.indexOf('this');
-    if (i >= 0 && i + 1 < body.length && _parts.containsKey(body[i + 1])) drop(i, 2);
+    final i = _thisPartAt(body);
+    if (i >= 0) drop(i, 2);
   }
   while (body.isNotEmpty && const {'to', 'at', 'in', 'on', 'please', 'by', 'the'}.contains(body.last)) {
     drop(body.length - 1, 1);
@@ -273,14 +318,44 @@ Command? _reminder(List<String> t, List<String> raw, DateTime now) {
   return AddReminder(_sentence(bodyRaw), at);
 }
 
+/// Screen words said before any timer word or duration: "Turn off the screen so I can focus" is the screen, "Set a 20
+/// minute timer so I can wake up" and "Set a timer for 10 minutes then turn off the screen" are timers. "wake up" only
+/// leads the sentence.
 Command? _screen(List<String> t) {
-  final screen = t.contains('screen') || t.contains('display');
-  if ((screen && t.contains('off')) ||
-      hasAny(t, ['good night', 'goodnight', 'night mode', 'sleep mode', 'go to sleep'])) {
+  final timer = _timerAt(t);
+  bool beforeTimer(int i) => i >= 0 && i < timer;
+  final screen = _firstOf(t, const ['screen', 'display']);
+  int withScreen(String w) {
+    final i = t.indexOf(w);
+    return screen < 0 || i < 0 ? -1 : (i < screen ? i : screen);
+  }
+
+  if (beforeTimer(withScreen('off')) ||
+      beforeTimer(_firstOf(t, const ['good night', 'goodnight', 'night mode', 'sleep mode', 'go to sleep']))) {
     return const ScreenOff();
   }
-  if ((screen && t.contains('on')) || hasPhrase(t, 'wake up')) return const ScreenOn();
+  if (beforeTimer(withScreen('on')) || indexOfPhrase(t, const ['wake', 'up']) == 0) return const ScreenOn();
   return null;
+}
+
+/// Where the first timer word or duration is in [t], or `t.length` when there is none.
+int _timerAt(List<String> t) {
+  final word = _firstOf(t, _timerWords);
+  final at = word < 0 ? t.length : word;
+  for (var i = 0; i < at; i++) {
+    if (readEnDuration(t, i) != null) return i;
+  }
+  return at;
+}
+
+/// Where the first of [phrases] is in [t], or -1.
+int _firstOf(List<String> t, List<String> phrases) {
+  var at = -1;
+  for (final p in phrases) {
+    final i = indexOfPhrase(t, p.split(' '));
+    if (i >= 0 && (at < 0 || i < at)) at = i;
+  }
+  return at;
 }
 
 Command? _unsupported(List<String> t) {
@@ -294,8 +369,31 @@ Command? _unsupported(List<String> t) {
 const _timerWords = ['timer', 'countdown', 'count down', 'focus', 'focusing', 'pomodoro'];
 const _stopVerbs = ['cancel', 'stop', 'end', 'clear', 'delete', 'remove', 'kill', 'reset', 'turn off'];
 
-Command? _cancelTimer(List<String> t) =>
-    hasAny(t, _stopVerbs) && (hasAny(t, _timerWords) || hasPhrase(t, 'session')) ? const CancelTimer() : null;
+/// A stop verb before a timer word: "Stop the timer", "Cancel the 10 minute timer". Not when the sentence starts a
+/// timer ("Set a timer for 10 minutes to end the call", "Start focusing until the end of the hour"), nor "reset" with a
+/// duration ("Reset the timer to 10 minutes" starts a new one).
+Command? _cancelTimer(List<String> t) {
+  if (const {'start', 'set', 'begin'}.contains(t.first)) return null;
+  var stop = -1;
+  var verb = '';
+  for (final v in _stopVerbs) {
+    final i = indexOfPhrase(t, v.split(' '));
+    if (i >= 0 && (stop < 0 || i < stop)) {
+      stop = i;
+      verb = v;
+    }
+  }
+  if (stop < 0 || (verb == 'reset' && _hasDuration(t))) return null;
+  final target = [..._timerWords, 'session'].any((w) => indexOfPhrase(t, w.split(' '), stop + 1) >= 0);
+  return target ? const CancelTimer() : null;
+}
+
+bool _hasDuration(List<String> t) {
+  for (var i = 0; i < t.length; i++) {
+    if (readEnDuration(t, i) != null) return true;
+  }
+  return false;
+}
 
 Command? _timeLeft(List<String> t) {
   if (hasAny(t, [

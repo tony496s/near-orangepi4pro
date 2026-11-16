@@ -4,7 +4,7 @@ import threading
 import unittest
 
 from near_voice.audio import Frame
-from near_voice.wake import (_RESET, DEFAULT_KEYWORDS, KEYWORDS_DIR, WakeHit, WakeWorker, pick_kws_files)
+from near_voice.wake import (_RESET, _STOP, DEFAULT_KEYWORDS, KEYWORDS_DIR, WakeHit, WakeWorker, pick_kws_files)
 
 from .helpers import LOUD, SILENCE
 
@@ -144,6 +144,26 @@ class WakeWorkerTest(unittest.TestCase):
                 self.worker.on_frame(self.frame(SILENCE))  # nothing drained: the spotter thread is stuck
         self.assertEqual(self.worker._queue.qsize(), 10)
         self.assertEqual(self.worker.dropped, 6)  # the reset marker took one slot
+
+    def test_a_gap_with_a_full_queue_still_resets_the_spotter(self):
+        self.feed(SILENCE)  # frame 0: spotting has started, its first reset marker is handled
+        with self.assertLogs("near_voice.wake", "WARNING"):
+            for _ in range(15):
+                self.worker.on_frame(self.frame(SILENCE))  # frames 1-15, nothing drained: the spotter thread is stuck
+        dropped = self.worker.dropped
+        self.wanted = False
+        self.worker.on_frame(self.frame(SILENCE))  # frame 16, e.g. a listen was opened
+        self.wanted = True
+        self.worker.on_frame(self.frame(SILENCE))  # frame 17
+        self.assertIs(self.worker._queue.get_nowait(), _RESET)
+        self.assertEqual(self.worker._queue.get_nowait().index, 17)  # the frames from before the gap are gone
+        self.assertTrue(self.worker._queue.empty())
+        self.assertEqual(self.worker.dropped, dropped)  # dropped counts frames skipped while feeding only
+
+    def test_a_restart_keeps_the_stop_marker(self):
+        self.worker._queue.put_nowait(_STOP)  # stop() is under way
+        self.worker.on_frame(self.frame(SILENCE))  # feeding starts
+        self.assertIs(self.worker._queue.get_nowait(), _STOP)
 
     def test_runs_in_its_own_thread_and_stops(self):
         posted = threading.Event()

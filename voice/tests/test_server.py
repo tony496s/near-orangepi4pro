@@ -70,6 +70,7 @@ class ServerTestBase(unittest.IsolatedAsyncioTestCase):
     config = SegmenterConfig()
     grace = 1.0
     wake_listen = 1.5
+    langs_check = 5.0
 
     async def asyncSetUp(self):
         self.vad = EnergyVad()
@@ -78,7 +79,7 @@ class ServerTestBase(unittest.IsolatedAsyncioTestCase):
         self.hub = FrameHub()
         self.clients = []
         self.server = VoiceServer(self.vad, self.stt, self.chimes, config=self.config, no_audio_grace_s=self.grace,
-                                  wake_listen_s=self.wake_listen)
+                                  wake_listen_s=self.wake_listen, langs_check_s=self.langs_check)
         self.hub.add(self.server.on_frame)
         self.port = await self.server.start("127.0.0.1", 0)
         self.client = await self.connect()
@@ -375,6 +376,12 @@ class LanguageTest(ServerTestBase):
         self.en_signed_in = False
         self.assertEqual((await self.ready())["langs"], ["vi"])
 
+    async def test_an_app_connecting_after_a_change_tells_the_apps_already_connected(self):
+        # self.client connected before English was added (told ["vi"]); the next check is 5 s away.
+        other = await self.connect()
+        await self.client.expect("ready", langs=["vi", "en"])
+        await other.nothing_for(0.1)  # the new app gets one "ready", not two
+
     async def test_an_english_listen_goes_to_the_english_engine_only(self):
         self.client.send({"cmd": "listen", "id": "e1", "lang": "en"})
         await self.client.expect("listening", id="e1")
@@ -407,6 +414,59 @@ class LanguageTest(ServerTestBase):
         await self.client.expect("processing", id="e1")
         await self.client.expect("error")
         self.assertEqual(self.stt.calls, [], "the Vietnamese model must not answer an English listen")
+
+
+class LangsCheckTest(ServerTestBase):
+    """A sign-in copied to the board (or refused) while the app is connected changes the languages on offer."""
+
+    langs_check = 0.05
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.en = FakeStt(text="Set a timer for 10 minutes.")
+        self.en.name, self.en.model = "deepgram", "harness-stt-en"
+        self.en.available = lambda: self.en_signed_in
+        self.en_signed_in = False
+        self.server.engines["en"] = self.en
+
+    async def test_a_change_sends_a_fresh_ready_to_every_app(self):
+        other = await self.connect()
+        await self.client.nothing_for(0.3)  # several checks, nothing changed: no "ready"
+        with self.assertLogs("near_voice.server", "INFO") as logs:
+            self.en_signed_in = True  # e.g. harness-auth.json copied to the board
+            for c in (self.client, other):
+                ev = await c.expect("ready")
+                self.assertEqual(ev, {"ev": "ready", "model": "fake-model", "stt": "fake", "tts": False, "wake": "off",
+                                      "langs": ["vi", "en"]})
+        self.assertTrue(any("langs now vi, en (was vi)" in m for m in logs.output), logs.output)
+        await self.client.nothing_for(0.3)  # told once, not at every check
+        await other.nothing_for(0.05)
+        self.en_signed_in = False  # e.g. the sign-in was refused
+        await self.client.expect("ready", langs=["vi"])
+        await other.expect("ready", langs=["vi"])
+
+    async def test_close_stops_the_checks(self):
+        checks = []
+        self.en.available = lambda: bool(checks.append(1))
+        for _ in range(100):
+            if checks:
+                break
+            await asyncio.sleep(0.01)
+        self.assertTrue(checks)
+        await self.server.close()
+        seen = len(checks)
+        await asyncio.sleep(0.2)
+        self.assertEqual(len(checks), seen)
+
+    async def test_a_failing_check_is_logged_and_checking_goes_on(self):
+        def broken():
+            raise OSError("disk gone")
+
+        with self.assertLogs("near_voice.server", "ERROR"):
+            self.en.available = broken
+            await asyncio.sleep(0.1)
+        self.en.available = lambda: True
+        await self.client.expect("ready", langs=["vi", "en"])
 
 
 class WakeTest(ServerTestBase):
