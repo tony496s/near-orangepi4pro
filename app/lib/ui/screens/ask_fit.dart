@@ -10,7 +10,7 @@ import '../widgets/timeline.dart';
 
 /// "HẸN GIỜ 25 PHÚT?": a timer asked for would run into a meeting (demo 6, `timerConflict()`). The meeting and how
 /// long until it on the left, the two answers on the right (left of the mic and VI/EN zone), and under them the next
-/// half hour zoomed: the meeting zone, both timers as bars, the part that clashes hatched.
+/// half hour zoomed: the meeting zone, both timers as bars, the part that clashes tinted warm.
 class AskFitScreen extends StatelessWidget {
   const AskFitScreen({super.key, required this.c, required this.ask});
   final AppController c;
@@ -88,7 +88,7 @@ class AskFitScreen extends StatelessWidget {
 
 /// The next half hour (longer if the timer asked for ends later), the demo's `.zb`: ticks every 5 minutes, the
 /// meeting zone from its start, the fitted timer (teal) and the one asked for (outlined) as bars from now, the part of
-/// the latter inside the meeting hatched, and the "BÂY GIỜ" line.
+/// the latter inside the meeting tinted warm, and the "BÂY GIỜ" line.
 class FitZoom extends StatelessWidget {
   const FitZoom({super.key, required this.ask, required this.now});
   final AskFit ask;
@@ -98,6 +98,9 @@ class FitZoom extends StatelessWidget {
   static const top = 204.0;
   static const width = 1392.0;
   static const height = 116.0;
+
+  /// The clash: a solid warm tint (diagonal stripes shimmered on the strip and hid the bar's label).
+  static const clashFill = Color(0x4DFFB36B);
 
   /// Where the window starts: the 5 minutes now is in, one step earlier when now is less than 2 minutes in (room for
   /// the "BÂY GIỜ" label left of the line).
@@ -141,12 +144,14 @@ class FitZoom extends StatelessWidget {
                 left: k * px - .5,
                 top: 72,
                 child: const SizedBox(width: 1, height: 5, child: ColoredBox(color: Ink.faint))),
+            // The first and last labels sit inside the window (left / right aligned), not half cut off at its edges.
             Positioned(
-              left: k * px - 24,
+              left: (k * px - 24).clamp(0.0, width - 48),
               width: 48,
               top: 82,
               child: Text(hhmm(f.add(Duration(minutes: k))),
-                  textAlign: TextAlign.center, style: ts(13, weight: FontWeight.w500, color: Ink.faint, height: 1)),
+                  textAlign: k * px < 24 ? TextAlign.left : (k * px > width - 24 ? TextAlign.right : TextAlign.center),
+                  style: ts(13, weight: FontWeight.w500, color: Ink.faint, height: 1)),
             ),
           ],
           Positioned(
@@ -180,6 +185,21 @@ class FitZoom extends StatelessWidget {
               border: Ink.cool,
               textColor: Ink.cool,
             ),
+          // The part inside the meeting: a plain warm fill under the bar, so its outline and label stay on top.
+          if (overX > zx)
+            Positioned(
+              key: const Key('ask-fit-clash'),
+              left: zx,
+              top: 42,
+              width: overX - zx,
+              height: 26,
+              child: const DecoratedBox(
+                decoration: BoxDecoration(
+                  color: clashFill,
+                  borderRadius: BorderRadius.horizontal(right: Radius.circular(7)),
+                ),
+              ),
+            ),
           _bar(
             key: const Key('ask-fit-bar-asked'),
             left: nx,
@@ -190,15 +210,6 @@ class FitZoom extends StatelessWidget {
             border: const Color(0x80F2EEE6),
             textColor: Ink.dim,
           ),
-          if (overX > zx)
-            Positioned(
-              key: const Key('ask-fit-clash'),
-              left: zx,
-              top: 42,
-              width: overX - zx,
-              height: 26,
-              child: const CustomPaint(painter: _Hatch()),
-            ),
           Positioned(left: nx - 1, top: 4, child: const _NowLine()),
         ],
       ),
@@ -271,28 +282,4 @@ class _NowLine extends StatelessWidget {
           ],
         ),
       );
-}
-
-/// Warm diagonal stripes (the demo's `.zb-clash`), rounded on the right like the bar they cover.
-class _Hatch extends CustomPainter {
-  const _Hatch();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final r = RRect.fromRectAndCorners(Offset.zero & size,
-        topRight: const Radius.circular(7), bottomRight: const Radius.circular(7));
-    canvas.save();
-    canvas.clipRRect(r);
-    canvas.drawRect(Offset.zero & size, Paint()..color = const Color(0x26FFB36B));
-    final stripe = Paint()
-      ..color = const Color(0x99FFB36B)
-      ..strokeWidth = 6;
-    for (var x = -size.height; x < size.width + size.height; x += 17) {
-      canvas.drawLine(Offset(x, size.height), Offset(x + size.height, 0), stripe);
-    }
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_Hatch oldDelegate) => false;
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:near_app/ui/screens/ask_fit.dart';
 import 'package:near_app/ui/theme.dart' show micZoneWidth, stripWidth;
 
 import '../support/fonts.dart';
@@ -52,9 +53,52 @@ void main() {
     final clash = tester.getRect(find.byKey(const Key('ask-fit-clash')));
     expect(fit.top, greaterThanOrEqualTo(200));
     expect(fit.right, lessThan(clash.left), reason: 'the fitted bar ends before the meeting');
-    expect(clash.right, closeTo(asked.right, .5), reason: 'hatched to the end of the 25 min bar');
+    expect(clash.right, closeTo(asked.right, .5), reason: 'tinted to the end of the 25 min bar');
     expect(asked.width / fit.width, closeTo(25 / 15, .01));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the clash is a plain tint under the asked bar, so its label reads on top (no stripes)', (tester) async {
+    final h = await StripHarness.pump(tester, at: at(10, 25));
+    await h.say('hẹn giờ 25 phút');
+    final clash = find.byKey(const Key('ask-fit-clash'));
+    expect(
+      find.descendant(of: clash, matching: find.byType(CustomPaint)),
+      findsNothing,
+      reason: 'no hatching',
+    );
+    final box = tester.widget<DecoratedBox>(find.descendant(of: clash, matching: find.byType(DecoratedBox)));
+    expect((box.decoration as BoxDecoration).color, FitZoom.clashFill);
+    // Painted before (under) the asked bar, whose label runs into the clash at 10:25.
+    final stack = tester.widget<Stack>(find.descendant(of: find.byType(FitZoom), matching: find.byType(Stack)).first);
+    int indexOf(String key) => stack.children.indexWhere((w) => w.key == Key(key));
+    expect(indexOf('ask-fit-clash'), isNonNegative);
+    expect(indexOf('ask-fit-clash'), lessThan(indexOf('ask-fit-bar-asked')));
+    final label = tester.getRect(find.text('25 phút · lấn 20 phút vào giờ họp'));
+    expect(label.right, greaterThan(tester.getRect(clash).left), reason: 'the label does reach the clash here');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the first and last tick labels sit whole inside the zoom', (tester) async {
+    // 18:20 with a meeting at 18:25 on the board: the window starts at 18:15 and its label was cut to ":15".
+    for (final (h0, m0, firstTick) in [(10, 12, '10:10'), (10, 25, '10:20')]) {
+      final h = await StripHarness.pump(tester, at: at(h0, m0));
+      await h.say('hẹn giờ 25 phút');
+      final zoom = tester.getRect(find.byType(FitZoom));
+      final ticks = find.descendant(
+        of: find.byType(FitZoom),
+        matching: find.byWidgetPredicate((w) => w is Text && RegExp(r'^\d\d:\d\d$').hasMatch(w.data ?? '')),
+      );
+      expect(ticks, findsAtLeastNWidgets(7));
+      for (final e in ticks.evaluate()) {
+        final r = tester.getRect(find.byWidget(e.widget));
+        final t = (e.widget as Text).data;
+        expect(r.left, greaterThanOrEqualTo(zoom.left - .5), reason: '$t at $h0:$m0');
+        expect(r.right, lessThanOrEqualTo(zoom.right + .5), reason: '$t at $h0:$m0');
+      }
+      final first = tester.getRect(find.text(firstTick));
+      expect(first.left, closeTo(zoom.left, .5), reason: 'the first label starts at the window edge');
+    }
   });
 
   testWidgets('under 5 minutes fit: "Thôi" and "Vẫn", no overflow', (tester) async {
