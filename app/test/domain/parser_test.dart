@@ -16,7 +16,7 @@ void main() {
     });
 
     test('reminder that lost "chiều" still lands at 15:00', () {
-      expect(p('NHẮC ANH GỌI CHO CHỊ LAN LÚC BA GIỜ'), AddReminder('Gọi cho chị lan', DateTime(2026, 11, 16, 15)));
+      expect(p('NHẮC ANH GỌI CHO CHỊ LAN LÚC BA GIỜ'), AddReminder('Gọi cho chị Lan', DateTime(2026, 11, 16, 15)));
     });
 
     test('notes', () {
@@ -45,10 +45,10 @@ void main() {
     });
 
     test('reminders with a part of day, a delay, or tomorrow', () {
-      expect(p('Nhắc anh gọi cho chị Lan lúc ba giờ chiều.'), AddReminder('Gọi cho chị lan', DateTime(2026, 11, 16, 15)));
+      expect(p('Nhắc anh gọi cho chị Lan lúc ba giờ chiều.'), AddReminder('Gọi cho chị Lan', DateTime(2026, 11, 16, 15)));
       expect(p('nhắc anh đứng dậy sau 20 phút'), AddReminder('Đứng dậy', DateTime(2026, 11, 16, 14, 32)));
       expect(p('nhắc em uống nước 10 phút nữa'), AddReminder('Uống nước', DateTime(2026, 11, 16, 14, 22)));
-      expect(p('nhắc anh gọi chị Lan sau 2 phút'), AddReminder('Gọi chị lan', DateTime(2026, 11, 16, 14, 14)));
+      expect(p('nhắc anh gọi chị Lan sau 2 phút'), AddReminder('Gọi chị Lan', DateTime(2026, 11, 16, 14, 14)));
       expect(p('nhắc anh nộp báo giá lúc tám giờ rưỡi sáng mai'),
           AddReminder('Nộp báo giá', DateTime(2026, 11, 17, 8, 30)));
       expect(p('nhắc tôi họp với khách 15:30'), AddReminder('Họp với khách', DateTime(2026, 11, 16, 15, 30)));

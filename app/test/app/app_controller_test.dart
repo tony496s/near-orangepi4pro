@@ -124,7 +124,7 @@ void main() {
       expect(c.flash!.meta, '15:00 · còn 48 phút');
       run(const Duration(minutes: 48));
       final a = c.alert as ReminderAlert;
-      expect(a.reminder.text, 'Gọi cho chị lan');
+      expect(a.reminder.text, 'Gọi cho chị Lan');
       c.alertAction(AlertAction.secondary);
       expect(c.alert, isNull);
       run(const Duration(minutes: 10));

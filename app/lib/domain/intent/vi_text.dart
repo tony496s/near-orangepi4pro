@@ -57,5 +57,28 @@ bool hasPhrase(List<String> tokens, String phrase) => indexOfPhrase(tokens, phra
 
 bool hasAny(List<String> tokens, List<String> phrases) => phrases.any((p) => hasPhrase(tokens, p));
 
-/// Tokens joined back into a sentence with the first letter capitalized.
-String sentence(List<String> tokens) => capitalize(tokens.join(' '));
+/// Tokens joined back into a sentence with the first letter capitalized, and likely names capitalized (see
+/// [capitalizeNames]).
+String sentence(List<String> tokens) => capitalize(capitalizeNames(tokens).join(' '));
+
+const _kinship = {'chị', 'anh', 'em', 'cô', 'chú', 'bác', 'ông', 'bà', 'bạn', 'sếp', 'cậu', 'dì', 'thầy'};
+const _notNames = {
+  'ấy', 'ta', 'này', 'đó', 'kia', 'ơi', 'mình', 'họ', 'nó', 'em', 'anh', 'chị', 'tôi', 'cả', 'hai', 'ba', 'tư', //
+  'trai', 'gái', 'út', 'đi', 'về', 'với', 'và',
+};
+const _afterName = {'và', 'với', 'về', 'ở', 'lúc', 'nhé', 'nha', 'trước', 'sau', 'rồi', 'để', 'qua', 'vào', 'bên'};
+
+/// STT output is all upper case, so names come out lower case ("gọi cho chị lan"). A word right after a kinship
+/// term is taken as a name when it ends the sentence or is followed by a word that cannot be part of the name
+/// ("gọi chị lan về ăn cơm"). Anything else is left alone: "bảo anh đi đón con" must not become "anh Đi".
+List<String> capitalizeNames(List<String> tokens) {
+  final out = [...tokens];
+  for (var i = 0; i + 1 < out.length; i++) {
+    if (!_kinship.contains(out[i])) continue;
+    final name = out[i + 1];
+    if (_notNames.contains(name) || !RegExp(r'^\p{L}+$', unicode: true).hasMatch(name)) continue;
+    final last = i + 2 == out.length;
+    if (last || _afterName.contains(out[i + 2])) out[i + 1] = capitalize(name);
+  }
+  return out;
+}
