@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/widgets.dart';
 
 import '../../data/price_source.dart';
@@ -11,6 +14,10 @@ import '../theme.dart';
 /// - [threshold]: a dashed cool line with [thresholdLabel] at its right end;
 /// - [yLabels]: three prices on a right-hand axis;
 /// - [selected]: the scrubbed point, with a vertical line and a dot.
+///
+/// The USD/VND chart uses:
+/// - [xTicks]: labels under chosen points (days 0/10/20/30) instead of start, middle and end;
+/// - [yTicks]: grid lines (and, with [yLabels], prices) at round values instead of three fixed heights.
 class LineChart extends StatelessWidget {
   const LineChart({
     super.key,
@@ -24,6 +31,8 @@ class LineChart extends StatelessWidget {
     this.thresholdLabel = '',
     this.yLabels = false,
     this.selected,
+    this.xTicks,
+    this.yTicks,
   });
 
   final List<PricePoint> points;
@@ -36,6 +45,14 @@ class LineChart extends StatelessWidget {
   final String thresholdLabel;
   final bool yLabels;
   final int? selected;
+
+  /// With [labels]: (point index, text) pairs shown under those points, in place of [startLabel], [midLabel] and
+  /// [endLabel]. The first point's label starts at its x, the last point's ends at its x, others are centred on it.
+  final List<(int, String)>? xTicks;
+
+  /// With [labels]: prices for the grid lines (and the right-hand axis with [yLabels]), in place of the three fixed
+  /// lines. The y range grows to include them, so pass values near the data (see [niceTicks]).
+  final List<double>? yTicks;
 
   static const labelHeight = 18.0;
 
@@ -57,6 +74,23 @@ class LineChart extends StatelessWidget {
     return (dx / w * (count - 1)).round().clamp(0, count - 1);
   }
 
+  /// Round values from [lo] to [hi] for [yTicks]: multiples of a step of 1, 2 or 5 times a power of ten, about
+  /// [count] steps across the range. When that leaves fewer than `count - 1` values (at least one), the next smaller
+  /// round step is used instead. Empty when [hi] is not above [lo].
+  static List<double> niceTicks(double lo, double hi, int count) {
+    if (!(hi > lo) || count < 1) return const [];
+    const ladder = [1, 2, 5, 10];
+    final raw = (hi - lo) / count;
+    final mag = math.pow(10, (math.log(raw) / math.ln10).floor()).toDouble();
+    final found = ladder.indexWhere((m) => m * mag >= raw);
+    final i = found < 0 ? ladder.length - 1 : found; // log rounding: raw can land a hair above 10 * mag
+    List<double> every(double step) => [for (var k = (lo / step).ceil(); k * step <= hi + step * 1e-9; k++) k * step];
+    final ticks = every(ladder[i] * mag);
+    if (ticks.length >= math.max(1, count - 1)) return ticks;
+    // The first round step above raw can leave only one or two values in the range: take the next smaller one.
+    return every(i > 0 ? ladder[i - 1] * mag : mag / 2);
+  }
+
   @override
   Widget build(BuildContext context) {
     final chart = CustomPaint(
@@ -68,33 +102,71 @@ class LineChart extends StatelessWidget {
         thresholdLabel: thresholdLabel,
         yLabels: yLabels,
         selected: selected,
+        yTicks: yTicks,
       ),
       size: Size.infinite,
     );
     if (!labels) return chart;
     final style = ts(12, color: Ink.faint, spacing: .5);
+    final ticks = xTicks;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(child: chart),
         SizedBox(
           height: labelHeight,
-          child: Padding(
-            padding: EdgeInsets.only(right: yLabels ? axisWidth : 0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(startLabel, style: style),
-                if (midLabel.isNotEmpty) Text(midLabel, style: style),
-                Text(endLabel, style: style),
-              ],
-            ),
-          ),
+          child: ticks != null
+              ? _ticksUnder(ticks, style)
+              : Padding(
+                  padding: EdgeInsets.only(right: yLabels ? axisWidth : 0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(startLabel, style: style),
+                      if (midLabel.isNotEmpty) Text(midLabel, style: style),
+                      Text(endLabel, style: style),
+                    ],
+                  ),
+                ),
         ),
       ],
     );
   }
+
+  Widget _ticksUnder(List<(int, String)> ticks, TextStyle style) => LayoutBuilder(
+    builder: (context, box) {
+      final width = box.maxWidth;
+      final n = points.length;
+      return Stack(
+        clipBehavior: Clip.none,
+        children: [
+          for (final (i, text) in ticks)
+            if (i >= 0 && i < n)
+              switch (xOf(i, n, width, yLabels: yLabels)) {
+                final x when i == 0 => Positioned(
+                  left: x,
+                  bottom: 0,
+                  child: Text(text, style: style),
+                ),
+                final x when i == n - 1 => Positioned(
+                  right: width - x,
+                  bottom: 0,
+                  child: Text(text, style: style),
+                ),
+                final x => Positioned(
+                  left: x,
+                  bottom: 0,
+                  child: FractionalTranslation(
+                    translation: const Offset(-.5, 0),
+                    child: Text(text, style: style),
+                  ),
+                ),
+              },
+        ],
+      );
+    },
+  );
 }
 
 class _LinePainter extends CustomPainter {
@@ -106,6 +178,7 @@ class _LinePainter extends CustomPainter {
     this.thresholdLabel = '',
     this.yLabels = false,
     this.selected,
+    this.yTicks,
   });
 
   final List<PricePoint> points;
@@ -115,6 +188,7 @@ class _LinePainter extends CustomPainter {
   final String thresholdLabel;
   final bool yLabels;
   final int? selected;
+  final List<double>? yTicks;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -132,6 +206,9 @@ class _LinePainter extends CustomPainter {
       widen(p.price);
     }
     if (threshold != null) widen(threshold!);
+    for (final v in yTicks ?? const <double>[]) {
+      widen(v);
+    }
     final pad = (hi - lo) * .12 + .5;
     lo -= pad;
     hi += pad;
@@ -142,7 +219,17 @@ class _LinePainter extends CustomPainter {
     Offset at(List<PricePoint> s, int i, int count) =>
         Offset(LineChart.xOf(i, count, size.width, yLabels: yLabels), yOf(s[i].price));
 
-    if (grid) {
+    final ticks = yTicks;
+    if (grid && ticks != null) {
+      final gp = Paint()
+        ..color = Ink.hair
+        ..strokeWidth = 1;
+      for (final v in ticks) {
+        final y = yOf(v);
+        canvas.drawLine(Offset(0, y), Offset(plotW, y), gp);
+        if (yLabels) _text(canvas, _axis(v), Offset(plotW + 8, y - 8), ts(12, color: Ink.faint));
+      }
+    } else if (grid) {
       final gp = Paint()
         ..color = Ink.hair
         ..strokeWidth = 1;
@@ -278,6 +365,7 @@ class _LinePainter extends CustomPainter {
       old.threshold != threshold ||
       old.thresholdLabel != thresholdLabel ||
       old.compare?.length != compare?.length ||
+      !listEquals(old.yTicks, yTicks) ||
       old.points.length != points.length ||
       (points.isNotEmpty && old.points.isNotEmpty && old.points.last.price != points.last.price);
 }

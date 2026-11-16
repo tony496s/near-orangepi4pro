@@ -1,3 +1,5 @@
+import '../strip_layout.dart';
+
 /// What a spoken (or typed) sentence asks the strip to do.
 sealed class Command {
   const Command();
@@ -86,7 +88,43 @@ final class GoHome extends Command {
 
 /// "chia màn ba cột": the columns become the home screen (the remembered set).
 final class SplitColumns extends Command {
-  const SplitColumns();
+  const SplitColumns([this.panels]);
+
+  /// The columns named in the sentence, in order; null or fewer than two: the remembered set.
+  final List<Panel>? panels;
+
+  @override
+  bool operator ==(Object other) =>
+      other is SplitColumns &&
+      (identical(other.panels, panels) ||
+          (other.panels != null &&
+              panels != null &&
+              other.panels!.length == panels!.length &&
+              Iterable.generate(panels!.length).every((i) => other.panels![i] == panels![i])));
+
+  @override
+  int get hashCode => Object.hashAll(panels ?? const []);
+
+  @override
+  String toString() => 'SplitColumns($panels)';
+}
+
+/// "đổi cột giữa sang tỷ giá đô la": one column changes, the others stay. [index] (negative from the right) or the
+/// column now showing [from]; neither: the middle one.
+final class SwapPanel extends Command {
+  const SwapPanel(this.to, {this.index, this.from});
+  final Panel to;
+  final int? index;
+  final Panel? from;
+
+  @override
+  bool operator ==(Object other) => other is SwapPanel && other.to == to && other.index == index && other.from == from;
+
+  @override
+  int get hashCode => Object.hash(to, index, from);
+
+  @override
+  String toString() => 'SwapPanel($to, index: $index, from: $from)';
 }
 
 /// "về một cột": the day strip becomes the home screen; the column set is kept for next time.

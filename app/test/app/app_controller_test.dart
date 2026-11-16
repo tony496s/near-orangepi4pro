@@ -64,6 +64,43 @@ void main() {
       expect(c.layout.split, isTrue);
     });
 
+    test('"đổi cột giữa sang tỷ giá đô la" changes the middle only; the timer keeps running; the set is saved', () async {
+      await make();
+      say('hẹn giờ 45 phút');
+      say('ĐỔI CỘT GIỮA SANG TỶ GIÁ ĐÔ LA');
+      expect(c.layout, const StripLayout([Panel.calendar, Panel.fx, Panel.timer]));
+      expect(c.timer, isNotNull, reason: 'the timer column runs on');
+      expect(c.fx.points.length, 31, reason: 'USD/VND, 30 days back to today');
+      expect(c.fx.points.last.at, day);
+      final fx = c.fx;
+      run(const Duration(minutes: 10));
+      expect(identical(c.fx, fx), isTrue, reason: 'read once a day');
+      expect(c.screen, Screen.home);
+      say('đổi tỷ giá sang giá vàng');
+      expect(c.layout, StripLayout.initial, reason: 'the column showing fx');
+      say('đổi cột sang tỷ giá');
+      expect(c.layout.panels[1], Panel.fx, reason: 'no column named: the middle one');
+      await store.idle;
+      await make(withStore: store);
+      expect(c.layout.panels, const [Panel.calendar, Panel.fx, Panel.timer], reason: 'remembered after a reboot');
+    });
+
+    test('"về một cột" says the layout is kept; "chia màn" with names sets the columns', () async {
+      await make(hour: 10);
+      say('về một cột');
+      expect(c.flash!.eyebrow, 'TIẾP THEO');
+      expect(c.flash!.title, 'Họp thiết kế');
+      expect(c.flash!.meta, endsWith('· đã lưu bố cục ba cột'));
+      say('về một cột');
+      expect(c.flash, isNull, reason: 'already one column: nothing to keep');
+      say('chia màn hai cột lịch và hẹn giờ');
+      expect(c.layout, const StripLayout([Panel.calendar, Panel.timer]));
+      say('về một cột');
+      expect(c.flash!.meta, endsWith('đã lưu bố cục hai cột'));
+      say('ba cột');
+      expect(c.layout, const StripLayout([Panel.calendar, Panel.timer]), reason: 'no names: the remembered set');
+    });
+
     test('gold comes from the price source for today, up to now', () async {
       await make();
       expect(c.gold.points.last.at, day.add(const Duration(hours: 9, minutes: 20)));
@@ -109,6 +146,16 @@ void main() {
       c.alertAction(AlertAction.secondary);
       expect(c.goldAlert, isNull);
     });
+  });
+
+  test('a new timer clears a "hết giờ" still waiting', () async {
+    await make();
+    say('hẹn giờ 1 phút');
+    run(const Duration(seconds: 61));
+    expect(c.alert, isA<TimerDoneAlert>());
+    say('hẹn giờ 10 phút');
+    expect(c.alert, isNull);
+    expect(c.timer!.duration, const Duration(minutes: 10));
   });
 
   group('busy at a time', () {

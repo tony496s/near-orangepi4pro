@@ -35,7 +35,10 @@ class StripHarness {
       log: (_) {},
     );
     await tester.runAsync(() => c.start(ticker: false));
-    if (!columns) c.run(const SingleColumn());
+    if (!columns) {
+      c.run(const SingleColumn());
+      c.flash = null; // the "đã lưu bố cục" note is for a spoken switch, not this setup
+    }
     await tester.pumpWidget(StripApp(controller: c));
     await tester.pump(const Duration(seconds: 1));
     return StripHarness(tester, clock, voice, c);

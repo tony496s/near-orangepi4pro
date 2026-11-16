@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../core/clock.dart';
 import '../core/vi_format.dart';
 import '../data/calendar_source.dart';
+import '../data/fx_source.dart';
 import '../data/local_store.dart';
 import '../data/price_source.dart';
 import '../domain/day_plan.dart';
@@ -100,6 +101,7 @@ class AppController extends ChangeNotifier {
     this.voice,
     this.settings = const ScheduleSettings(),
     this.prices = const SamplePriceSource(),
+    this.fxRates = const SampleFxSource(),
     this.heardHold = const Duration(milliseconds: 700),
     this.log = _print,
   }) : _lastInteraction = clock.now();
@@ -110,6 +112,7 @@ class AppController extends ChangeNotifier {
   final VoiceLink? voice;
   final ScheduleSettings settings;
   final PriceSource prices;
+  final FxSource fxRates;
 
   /// How long the heard sentence stays on screen before the command runs.
   final Duration heardHold;
@@ -203,6 +206,19 @@ class AppController extends ChangeNotifier {
   PriceSeries? _gold;
   int? _goldKey;
 
+  /// USD/VND sell rate, the last 31 days to today (sample data in the demo). The same all day, so read once a day.
+  PriceSeries get fx {
+    final d = dayOf(now);
+    if (_fxDay != d || _fx == null) {
+      _fx = fxRates.usdVnd(now);
+      _fxDay = d;
+    }
+    return _fx!;
+  }
+
+  PriceSeries? _fx;
+  DateTime? _fxDay;
+
   /// Yesterday's whole day, for the comparison line.
   PriceSeries get goldYesterday => prices.goldDay(now.subtract(const Duration(days: 1)));
 
@@ -211,6 +227,25 @@ class AppController extends ChangeNotifier {
 
   /// The price alert, if one is set (fired or not).
   GoldAlert? get goldAlert => _state.goldAlert;
+
+  /// The day strip shows a small gold tile once the chart was opened today, or while a price alert is armed (scenario
+  /// 3: "không xem nữa thì chart thu về một góc"). Not on the columns, which have a gold column of their own.
+  bool get goldMini {
+    if (layout.split) return false;
+    final a = goldAlert;
+    if (a != null && a.firedAt == null) return true;
+    final seen = _goldSeen;
+    return seen != null && sameDay(seen, now);
+  }
+
+  DateTime? _goldSeen;
+
+  /// A timer that ended while the columns are home shows in its own column, not over the whole strip (scenario 5:
+  /// "hết giờ thì báo ngay trong cột của nó"). Its buttons are [alertText]'s and go to [alertAction] as usual.
+  TimerDoneAlert? get timerDoneInColumn {
+    final a = alert;
+    return a is TimerDoneAlert && layout.split && screen == Screen.home ? a : null;
+  }
 
   /// The day the week view highlights with its free slots ("thứ năm rảnh lúc nào"); null: none.
   DateTime? freeSlotsDay;
@@ -413,6 +448,7 @@ class AppController extends ChangeNotifier {
     switch (c) {
       case StartTimer(:final duration, :final focus):
         _endFocusEarly(t);
+        _alerts.removeWhere((a) => a is TimerDoneAlert); // the old timer's "hết giờ" is answered by the new one
         _state.timer = ActiveTimer(startedAt: t, duration: duration, focus: focus);
         screen = Screen.home;
         flash = focus
@@ -473,20 +509,37 @@ class AppController extends ChangeNotifier {
         screen = Screen.home;
         flash = null;
         askTime = null;
-      case SplitColumns():
-        _state.layout = _state.layout.columns();
+      case SplitColumns(:final panels):
+        _state.layout = _state.layout.columns(panels);
+        screen = Screen.home;
+        flash = null;
+      case SwapPanel(:final to, :final index, :final from):
+        final l = _state.layout;
+        final i = index ?? (from != null && l.panels.contains(from) ? l.panels.indexOf(from) : l.panels.length ~/ 2);
+        _state.layout = l.withPanel(i, to);
         screen = Screen.home;
         flash = null;
       case SingleColumn():
-        _state.layout = _state.layout.single();
+        final was = _state.layout;
+        _state.layout = was.single();
         screen = Screen.home;
         flash = null;
+        if (was.split) {
+          // "đã lưu bố cục ba cột": the set comes back with "ba cột".
+          final kept = 'đã lưu bố cục ${_countWord(was.panels.length)} cột';
+          final next = plan.next(t);
+          _show(next == null
+              ? _flash('DẢI NGÀY', 'Về một cột', meta: kept, cool: true)
+              : _flash('TIẾP THEO', next.title, meta: '${_eventMeta(next, t)} · $kept', cool: true));
+        }
       case ShowGold():
         screen = Screen.gold;
+        _goldSeen = t;
         goldCompare = false;
         flash = null;
       case CompareGoldYesterday():
         screen = Screen.gold;
+        _goldSeen = t;
         goldCompare = true;
         flash = null;
       case SetGoldAlert(:final price):
@@ -612,6 +665,9 @@ class AppController extends ChangeNotifier {
     _touch(t);
     _alerts.removeAt(0);
     switch (a) {
+      case TimerDoneAlert(:final timer) when action == AlertAction.primary && layout.split && !timer.focus:
+        // "+10 phút" in the timer column; the columns stay as they are.
+        _state.timer = ActiveTimer(startedAt: t, duration: const Duration(minutes: 10), focus: false);
       case TimerDoneAlert(:final timer) when action == AlertAction.primary:
         // focus: "Nghỉ 5 phút"; plain timer: "Thêm 5 phút"
         _state.timer = ActiveTimer(startedAt: t, duration: const Duration(minutes: 5), focus: false);
@@ -623,6 +679,7 @@ class AppController extends ChangeNotifier {
         break;
       case GoldCrossedAlert() when action == AlertAction.primary:
         screen = Screen.gold; // "Xem chart"
+        _goldSeen = t;
         goldCompare = false;
       case GoldCrossedAlert():
         _state.goldAlert = null; // "Tắt báo"
@@ -791,6 +848,8 @@ class AppController extends ChangeNotifier {
   }
 
   String _id(String prefix, DateTime t) => '$prefix${t.microsecondsSinceEpoch}-${_state.notes.length + _state.reminders.length}';
+
+  static String _countWord(int n) => const {2: 'hai', 3: 'ba'}[n] ?? '$n';
 
   static String _eventMeta(CalendarEvent e, DateTime t) =>
       [hhmm(e.start), 'còn ${durationVi(e.start.difference(t))}', if (e.details.isNotEmpty) e.details].join(' · ');

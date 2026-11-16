@@ -124,7 +124,8 @@ AlertText alertText(AppController c, Alert a) {
             ['Phiên $sessionNumber hôm nay', if (after.isNotEmpty) after].join(' · '), 'Nghỉ 5 phút', 'Để sau',
             done: true);
       }
-      return AlertText('HẾT GIỜ', 'Hết ${durationVi(timer.duration)}', after, 'Thêm 5 phút', 'Xong', done: true);
+      return AlertText('HẾT GIỜ', 'Hết ${durationVi(timer.duration)}', after,
+          c.layout.split ? '+10 phút' : 'Thêm 5 phút', 'Xong', done: true);
     case GoldCrossedAlert(:final rule, :final price):
       return AlertText('VÀNG ${rule.above ? 'VƯỢT' : 'XUỐNG DƯỚI'} ${viPrice(rule.threshold)} ĐÔ', 'Giá bây giờ ${viNumber(price)}',
           'Đặt lúc ${hhmm(rule.setAt)} · số liệu mẫu', 'Xem chart', 'Tắt báo',

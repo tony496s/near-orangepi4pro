@@ -1,7 +1,7 @@
 /// What the strip shows as its home screen: the day strip (one column) or 2-3 side-by-side panels.
 ///
 /// The column set is remembered even while the strip is on one column, so "chia màn ba cột" brings back the same set.
-enum Panel { calendar, gold, timer }
+enum Panel { calendar, gold, timer, fx }
 
 class StripLayout {
   const StripLayout(this.panels, {this.split = true});
@@ -15,7 +15,27 @@ class StripLayout {
   final bool split;
 
   StripLayout single() => StripLayout(panels, split: false);
-  StripLayout columns() => StripLayout(panels, split: true);
+  /// Most columns that fit the strip.
+  static const maxColumns = 3;
+
+  /// The columns as home; [named] replaces the set when it has at least two ("chia màn ba cột: lịch, giá vàng, hẹn
+  /// giờ"), otherwise the remembered set comes back.
+  StripLayout columns([List<Panel>? named]) {
+    final set = named != null && named.length >= 2 ? named.take(maxColumns).toList(growable: false) : panels;
+    return StripLayout(set, split: true);
+  }
+
+  /// Column [index] (negative counts from the right) shows [p], on the columns. If [p] is already in another column the
+  /// two swap places, so a panel never shows twice. An index out of range changes nothing but the split.
+  StripLayout withPanel(int index, Panel p) {
+    final i = index < 0 ? panels.length + index : index;
+    if (i < 0 || i >= panels.length) return columns();
+    final next = [...panels];
+    final j = next.indexOf(p);
+    if (j >= 0) next[j] = next[i];
+    next[i] = p;
+    return StripLayout(List.unmodifiable(next), split: true);
+  }
 
   Map<String, Object?> toJson() => {
     'panels': [for (final p in panels) p.name],

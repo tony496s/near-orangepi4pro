@@ -1,4 +1,5 @@
 import '../../core/clock.dart' show sameDay;
+import '../strip_layout.dart';
 import 'commands.dart';
 import 'vi_numbers.dart';
 import 'vi_text.dart';
@@ -118,9 +119,84 @@ Command? _screen(List<String> t) {
 /// "chia màn ba cột (lịch, giá vàng, hẹn giờ)", "mở ba cột", "về một cột", "về dải ngày". Checked before "về" alone
 /// (go home) and before the timer rule, which would take "hẹn giờ" inside the list of columns.
 Command? _layout(List<String> t) {
+  final swap = _swapPanel(t);
+  if (swap != null) return swap;
   if (hasAny(t, ['một cột', '1 cột', 'dải ngày', 'bỏ chia', 'gộp cột'])) return const SingleColumn();
-  if (hasAny(t, ['chia màn', 'chia cột', 'ba cột', '3 cột', 'hai cột', '2 cột', 'nhiều cột'])) return const SplitColumns();
+  if (hasAny(t, ['chia màn', 'chia cột', 'ba cột', '3 cột', 'hai cột', '2 cột', 'nhiều cột'])) {
+    final named = _panelsIn(t);
+    return SplitColumns(named.length >= 2 ? named : null);
+  }
   return null;
+}
+
+/// Words for each panel, longest first where they overlap ("tỷ giá" before "giá vàng" is read at "tỷ").
+const _panelWords = <(List<String>, Panel)>[
+  (['tỷ', 'giá'], Panel.fx),
+  (['tỉ', 'giá'], Panel.fx),
+  (['đô', 'la'], Panel.fx),
+  (['ngoại', 'tệ'], Panel.fx),
+  (['usd'], Panel.fx),
+  (['đô'], Panel.fx),
+  (['giá', 'vàng'], Panel.gold),
+  (['vàng'], Panel.gold),
+  (['lịch'], Panel.calendar),
+  (['hẹn', 'giờ'], Panel.timer),
+  (['đếm', 'ngược'], Panel.timer),
+  (['bấm', 'giờ'], Panel.timer),
+];
+
+/// The panels named in [t], in the order said, each once.
+List<Panel> _panelsIn(List<String> t) {
+  final out = <Panel>[];
+  var i = 0;
+  while (i < t.length) {
+    var step = 1;
+    for (final (words, panel) in _panelWords) {
+      if (i + words.length <= t.length && Iterable<int>.generate(words.length).every((k) => t[i + k] == words[k])) {
+        if (!out.contains(panel)) out.add(panel);
+        step = words.length;
+        break;
+      }
+    }
+    i += step;
+  }
+  return out;
+}
+
+/// "cột giữa" = 1, "cột trái"/"cột đầu"/"cột một" = 0, "cột phải"/"cột cuối" = -1 (the last), "cột hai" = 1, "cột ba"
+/// = 2; "bên trái"/"bên phải" too. Null when no column is named. "ba cột" (how many) is not a position.
+int? _columnIndex(List<String> t) {
+  for (var k = 0; k < t.length; k++) {
+    if (t[k] != 'cột' && t[k] != 'bên') continue;
+    var i = k + 1;
+    if (i < t.length && t[i] == 'thứ') i++;
+    if (i >= t.length) continue;
+    final w = t[i];
+    if (w == 'giữa') return 1;
+    if (w == 'trái' || w == 'đầu') return 0;
+    if (w == 'phải' || w == 'cuối') return -1;
+    if (t[k] == 'cột') {
+      if (w == 'nhất') return 0;
+      final n = readNumber(t, i);
+      if (n != null && n.value >= 1 && n.value <= StripLayout.maxColumns) return n.value - 1;
+    }
+  }
+  return null;
+}
+
+/// "đổi cột giữa sang tỷ giá đô la", "chuyển cột phải thành giá vàng", "đổi vàng sang tỷ giá". The new panel follows
+/// "sang"/"thành"/"bằng"; "đổi lịch họp sang thứ năm" names no panel there and is left to the other rules.
+Command? _swapPanel(List<String> t) {
+  if (!hasAny(t, ['đổi', 'chuyển', 'thay'])) return null;
+  final cut = t.indexWhere((w) => w == 'sang' || w == 'thành' || w == 'bằng');
+  if (cut < 0) return null;
+  final to = _panelsIn(t.sublist(cut + 1));
+  if (to.isEmpty) return null;
+  final before = t.sublist(0, cut);
+  final index = _columnIndex(before);
+  final from = _panelsIn(before);
+  if (index == null && from.isEmpty && !before.contains('cột')) return null;
+  return SwapPanel(to.first, index: index, from: index == null ? from.firstOrNull : null);
 }
 
 /// "mở chart vàng" (Zipformer may write "chát"), "so với hôm qua thì sao", "báo anh khi vàng vượt 4.150 đô".

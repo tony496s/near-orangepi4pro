@@ -7,6 +7,7 @@ import 'screens/ambient.dart';
 import 'screens/columns.dart';
 import 'screens/focus.dart';
 import 'screens/gold.dart';
+import 'screens/gold_alert.dart';
 import 'screens/month.dart';
 import 'screens/night.dart';
 import 'screens/recap.dart';
@@ -51,10 +52,12 @@ class _Strip extends StatelessWidget {
   Widget build(BuildContext context) {
     final alert = c.alert;
     final night = c.night && alert == null;
+    // A timer that ends on the columns shows in its column; the mic and the VI/EN switch stay.
+    final fullAlert = alert != null && c.timerDoneInColumn == null;
     final Widget screen;
     final String key;
-    if (alert != null) {
-      screen = AlertScreen(c: c, alert: alert);
+    if (fullAlert) {
+      screen = alert is GoldCrossedAlert ? GoldAlertScreen(c: c, alert: alert) : AlertScreen(c: c, alert: alert);
       key = 'alert-${alert.shownAt.microsecondsSinceEpoch}';
     } else if (night) {
       screen = NightScreen(c: c);
@@ -122,9 +125,9 @@ class _Strip extends StatelessWidget {
                 child: KeyedSubtree(key: ValueKey(key), child: screen),
               ),
             ),
-            if (showMic && alert == null)
+            if (showMic && !fullAlert)
               Positioned(right: 0, top: 0, child: MicButton(ready: c.micReady, warning: c.saveFailing, dim: night, onTap: c.talk)),
-            if (showMic && alert == null && c.englishAvailable)
+            if (showMic && !fullAlert && c.englishAvailable)
               Positioned(
                   right: 0, top: micZoneHeight, child: LangSwitch(lang: c.voiceLang, dim: night, onTap: c.toggleVoiceLang)),
             if (c.askTime != null && c.listening == null)

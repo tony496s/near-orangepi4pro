@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:near_app/app/app_controller.dart';
 import 'package:near_app/data/calendar_source.dart';
+import 'package:near_app/domain/intent/commands.dart';
 import 'package:near_app/ui/theme.dart' show micZoneWidth, stripWidth;
 import 'package:near_app/voice/voice_client.dart';
 
@@ -124,7 +125,7 @@ void main() {
     await tester.longPress(find.byKey(const Key('column-touch-calendar')));
     await h.settle();
     expect(h.voice.sent.where((m) => m.startsWith('listen')), isEmpty, reason: 'no listening from a hold here');
-    expect(find.byKey(const Key('column-edge-gold')), findsOneWidget, reason: 'zoomed instead');
+    expect(find.byKey(const Key('column-rail-gold')), findsOneWidget, reason: 'zoomed instead');
     await tester.tap(find.byKey(const Key('column-touch-calendar')));
     await h.settle();
     await h.say('xem giá vàng');
@@ -150,6 +151,55 @@ void main() {
     expect(find.textContaining('28 Sinh nhật mẹ'), findsOneWidget, reason: 'the month is fetched to its end');
     await h.run(AppController.idleReturn);
     expect(find.byKey(const Key('column-gold')), findsOneWidget, reason: 'back to the columns after a minute');
+  });
+
+  testWidgets('scenario 5: the middle column becomes USD/VND while the timer runs; "về một cột" says the set is kept',
+      (tester) async {
+    final h = await StripHarness.pump(tester, at: at(13, 31), columns: true);
+    await h.say('hẹn giờ 45 phút');
+    await h.say('đổi cột giữa sang tỷ giá đô la');
+    expect(find.byKey(const Key('column-fx')), findsOneWidget);
+    expect(find.byKey(const Key('column-gold')), findsNothing);
+    expect(find.text('45:00'), findsOneWidget, reason: 'the timer column runs on');
+    await h.say('về một cột');
+    expect(find.textContaining('đã lưu bố cục ba cột'), findsOneWidget);
+    await h.say('ba cột');
+    expect(find.byKey(const Key('column-fx')), findsOneWidget, reason: 'the same set comes back');
+  });
+
+  testWidgets('scenario 3 on the day strip: chart, back to a small gold tile, alert with its chart, "Xem chart"',
+      (tester) async {
+    final h = await StripHarness.pump(tester, at: at(8, 10));
+    expect(find.byKey(const Key('gold-mini')), findsNothing, reason: 'not before the chart was opened');
+    await h.say('mở chart vàng sáng nay');
+    expect(find.byKey(const Key('gold-screen')), findsOneWidget);
+    await h.run(AppController.idleReturn);
+    expect(find.byKey(const Key('gold-mini')), findsOneWidget, reason: 'the chart folds into a tile on the day strip');
+    final threshold = (h.c.gold.last + 2).roundToDouble();
+    h.c.run(SetGoldAlert(threshold));
+    for (var i = 0; i < 300 && h.c.alert == null; i++) {
+      h.clock.advance(const Duration(seconds: 1));
+      h.c.tick();
+    }
+    await h.settle();
+    expect(find.byKey(const Key('gold-alert-screen')), findsOneWidget, reason: 'the gold alert has its own screen');
+    await tester.tap(find.byKey(const Key('alert-primary')));
+    await h.settle();
+    expect(find.byKey(const Key('gold-screen')), findsOneWidget, reason: '"Xem chart"');
+  });
+
+  testWidgets('scenario 5: a timer that ends on the columns keeps the mic; a new timer replaces the "hết giờ"',
+      (tester) async {
+    final h = await StripHarness.pump(tester, at: at(13, 31), columns: true);
+    await h.say('hẹn giờ 1 phút');
+    await h.run(const Duration(seconds: 61));
+    expect(find.byKey(const Key('column-timer-primary')), findsOneWidget, reason: 'in its column');
+    expect(find.byKey(const Key('column-gold')), findsOneWidget, reason: 'the other columns stay');
+    expect(find.byKey(const Key('mic')), findsOneWidget, reason: 'still talk by the mic');
+    await h.say('hẹn giờ 5 phút');
+    expect(h.c.alert, isNull, reason: 'the new timer answers the old one');
+    expect(find.byKey(const Key('column-timer-primary')), findsNothing);
+    expect(find.text('05:00'), findsOneWidget);
   });
 
   testWidgets('scenario 1: focus by voice, countdown, done alert, break', (tester) async {
