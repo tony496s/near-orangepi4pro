@@ -2,7 +2,11 @@
 
 > Ngày 2026-11-16. Trạng thái: **đã chốt mục 7, đang thử trên board**. B1, B2 đã xong (`017f60c` trên `feat/m1-day-strip`).
 > B3 (STT cloud qua backend Harness), C1 (wake word KWS có sẵn) và phần wake của B6, B7 đã làm, chưa commit. TTS (A2, B4,
-> B5, B8 phần Piper, phần `say` của B6, B7) **tạm hoãn** theo người dùng. A1 chưa chạy (chưa có đồng ý gửi bản ghi E4).
+> B5, B8 phần Piper, phần `say` của B6, B7) **tạm hoãn** theo người dùng.
+> **A1 đã đo (16/11, `phase0/RESULTS.md` mục E4b):** qua Harness, tiếng Việt (nova-2) sai 23% so với 7% của Zipformer và
+> chậm hơn khoảng 2 s; tiếng Anh (nova-3) sai 31%, tốt hơn Parakeet (47%). Người dùng chốt: **tiếng Việt chạy local
+> (mặc định), tiếng Anh qua Harness**, chọn bằng nút VI/EN dưới mic. `listen` có thêm `lang`, `ready` có `langs`; app
+> có parser lệnh tiếng Anh (`en_parser.dart`). `CloudFirstStt` (`--stt cloud`) vẫn giữ nhưng tắt trên board.
 > Tham khảo: `harness/autonomous-harness/mobile` (voice input), `phase0/RESULTS.md` (E4 STT, E5 wake word),
 > spec `docs/superpowers/specs/2026-11-16-near-demo-design.md` (mục 6, protocol voice).
 > Kế hoạch này mở rộng **bước 12** của M1 (voice service) và thêm TTS, STT cloud tuỳ chọn, wake word thử nghiệm.
@@ -124,7 +128,7 @@ Mỗi bước có test riêng; chưa có test và chưa chạy test thì bước
 
 | # | Việc | Đạt khi | Test |
 |---|---|---|---|
-| A1 | ⏸ Chưa chạy: người dùng chưa đồng ý gửi bản ghi E4. **Deepgram trên bộ E4:** thêm `--engine deepgram` vào `phase0/stt/run_stt.py decode` (bọc WAV, `nova-2`/`vi`, `nova-3`/`en`, thử lại cả `nova-3`/`vi` vì có thể đã đổi). Chạy từ board qua Wi-Fi, ghi cả trễ mạng p50/p95. **Cần đồng ý gửi bản ghi giọng (mục 7)** | Có bảng WER cạnh Zipformer-vi và Parakeet. Đáng dùng nếu tiếng Anh ≤ 15% WER và trễ p95 ≤ 1,5 s | `test_run_stt.py`: client Deepgram gọi HTTP server giả (đúng query, header, timeout, lỗi 4xx/5xx) |
+| A1 | ✅ 16/11, `phase0` E4b: VI 23,2% (Zipformer 7,1%), EN 31,2% (Parakeet 47%), trễ p95 3,0 s (vi) và 1,5 s (en). Không đạt ngưỡng EN ≤ 15%. Chạy qua Harness (`run_stt.py --model harness-vi\|harness-en`), không thử được nova-3/vi vì backend tự chọn model. **Deepgram trên bộ E4:** thêm `--engine deepgram` vào `phase0/stt/run_stt.py decode` (bọc WAV, `nova-2`/`vi`, `nova-3`/`en`, thử lại cả `nova-3`/`vi` vì có thể đã đổi). Chạy từ board qua Wi-Fi, ghi cả trễ mạng p50/p95. **Cần đồng ý gửi bản ghi giọng (mục 7)** | Có bảng WER cạnh Zipformer-vi và Parakeet. Đáng dùng nếu tiếng Anh ≤ 15% WER và trễ p95 ≤ 1,5 s | `test_run_stt.py`: client Deepgram gọi HTTP server giả (đúng query, header, timeout, lỗi 4xx/5xx) |
 | A2 | ⏸ Hoãn (TTS chưa cần). **TTS Piper vi trên board:** tải 2–3 giọng `vi_VN` bản sherpa-onnx (kiểm lại tên trong release `tts-models`, vd. `vits-piper-vi_VN-vais1000-medium`). Đo RTF, RAM trên 1 nhân A76 và 1 nhân A55; phát 10 câu mẫu của Near qua loa HDMI cho người dùng nghe | Câu khoảng 2 s tổng hợp xong ≤ 0,5 s trên A76; người dùng chấp nhận giọng | `phase0/tts/test_run_tts.py`: chọn file model, ghi WAV, tính RTF |
 
 ### B. Gắn vào `near-orangepi4pro`
@@ -183,7 +187,8 @@ Mỗi bước có test riêng; chưa có test và chưa chạy test thì bước
 
 > **Đã chốt 2026-11-16:** (1) có làm STT cloud, dùng tạm qua backend Harness bằng account Harness của người dùng; (2) TTS
 > tạm thời chưa cần; (3) giữ "Hey Near", làm C1 với model KWS có sẵn; (4) đã giải thích `onnxruntime`, chỉ cần khi
-> tới C4. Câu hỏi gửi bản ghi E4 lên Deepgram (A1) chưa có trả lời.
+> tới C4. Người dùng đồng ý gửi bản ghi E4 lên Deepgram để đo A1. Sau A1: tiếng Việt local, tiếng Anh qua Harness
+> bằng nút VI/EN.
 
 1. **STT cloud có làm không?** Nếu có: key Deepgram riêng cho Near (khuyên dùng) hay đi qua backend Harness? Và có đồng ý
    gửi bản ghi E4 (`phase0/data/e4/session1.wav`, giọng của bạn) lên Deepgram để đo A1 không?
