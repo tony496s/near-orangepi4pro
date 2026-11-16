@@ -31,11 +31,11 @@ void main() {
   });
 
   testWidgets('a label after a short event stops before the next event', (tester) async {
-    // The board showed "Họp nhanh với team" (15:00, 15 min) written over "Làm sâu" (16:00).
+    // The board showed "Họp nhanh với team" (15:00, 15 min) written over "Tập trung sâu" (16:00).
     await pump(tester, [
       ev('a', '1:1', at(14, 30), 30),
       ev('b', 'Họp nhanh với team', at(15), 15),
-      ev('c', 'Làm sâu', at(16), 60, kind: EventKind.focus),
+      ev('c', 'Tập trung sâu', at(16), 60, kind: EventKind.focus),
     ]);
     final label = tester.getRect(find.text('Họp nhanh với team'));
     expect(label.left, greaterThan(boxLeft(at(15, 15)) - 4), reason: 'after its box');
@@ -61,7 +61,7 @@ void main() {
 
   testWidgets('events given out of order are laid out by start time', (tester) async {
     await pump(tester, [
-      ev('c', 'Làm sâu', at(16), 60, kind: EventKind.focus),
+      ev('c', 'Tập trung sâu', at(16), 60, kind: EventKind.focus),
       ev('b', 'Họp nhanh với team', at(15), 15),
     ]);
     expect(tester.getRect(find.text('Họp nhanh với team')).right, lessThan(boxLeft(at(16))));

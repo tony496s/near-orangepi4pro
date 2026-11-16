@@ -27,7 +27,7 @@ class SampleCalendarSource implements CalendarSource {
     ('10:30', '11:45', 'Họp thiết kế', EventKind.meeting, 'Phòng 3', 4),
     ('12:00', '13:00', 'Ăn trưa', EventKind.meal, null, null),
     ('14:30', '15:00', '1:1', EventKind.meeting, null, 2),
-    ('16:00', '17:00', 'Làm sâu', EventKind.focus, null, null),
+    ('16:00', '17:00', 'Tập trung sâu', EventKind.focus, null, null),
     ('17:00', '17:45', 'Review', EventKind.meeting, 'Phòng 2', 5),
   ];
 
@@ -35,7 +35,7 @@ class SampleCalendarSource implements CalendarSource {
     ('08:30', '09:30', 'Sync với team design', EventKind.meeting, 'Phòng 2', 6),
     ('09:45', '10:00', 'Họp đứng', EventKind.meeting, 'Phòng 3', null),
     ('13:30', '15:00', 'Hội thảo', EventKind.meeting, 'Hội trường', null),
-    ('16:00', '17:00', 'Làm sâu', EventKind.focus, null, null),
+    ('16:00', '17:00', 'Tập trung sâu', EventKind.focus, null, null),
   ];
 
   static const _standup = ('09:00', '09:15', 'Họp đứng', EventKind.meeting, 'Phòng 3', null);

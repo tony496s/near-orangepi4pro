@@ -307,7 +307,7 @@ void main() {
     await tester.longPress(find.byKey(const Key('column-touch-calendar')));
     await tester.pumpAndSettle();
     expect(inKey('column-calendar', find.text('CÒN LẠI HÔM NAY')), findsOneWidget);
-    for (final t in ['14:30–15:00', '16:00–17:00', 'Làm sâu', '17:00–17:45', 'Review', 'còn 1 giờ · 2 người']) {
+    for (final t in ['14:30–15:00', '16:00–17:00', 'Tập trung sâu', '17:00–17:45', 'Review', 'còn 1 giờ · 2 người']) {
       expect(inKey('column-calendar', find.text(t)), findsOneWidget, reason: t);
     }
     expect(inKey('column-calendar', find.text('Ăn trưa')), findsNothing, reason: 'it ended');

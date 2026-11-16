@@ -14,7 +14,7 @@ void main() {
 
   testWidgets('steps on a timer and asks for no frame in between (a 60 Hz pulse cost ~40% of a core)', (tester) async {
     double opacity() => tester.widget<Opacity>(find.byType(Opacity)).opacity;
-    await tester.pumpWidget(const Directionality(textDirection: TextDirection.ltr, child: Pulse(child: Text('Làm sâu'))));
+    await tester.pumpWidget(const Directionality(textDirection: TextDirection.ltr, child: Pulse(child: Text('Tập trung sâu'))));
     expect(opacity(), 1);
     expect(tester.binding.hasScheduledFrame, isFalse, reason: 'idle between steps');
 

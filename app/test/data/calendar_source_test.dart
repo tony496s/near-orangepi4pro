@@ -16,7 +16,7 @@ void main() {
       '10:30 Họp thiết kế',
       '12:00 Ăn trưa',
       '14:30 1:1',
-      '16:00 Làm sâu',
+      '16:00 Tập trung sâu',
       '17:00 Review',
     ]);
   });
@@ -75,7 +75,7 @@ void main() {
         '10:30 Họp thiết kế',
         '12:00 Ăn trưa',
         '14:30 1:1',
-        '16:00 Làm sâu',
+        '16:00 Tập trung sâu',
         '17:00 Review',
       ], reason: 'a Monday before launch is the Monday table, without the quick meeting');
     });
