@@ -191,6 +191,12 @@ void main() {
     expect(find.text('NEAR · TỰ CHẠY'), findsOneWidget);
   });
 
+  test('run time: m:ss, then h:mm:ss', () {
+    expect(clock(const Duration(minutes: 6, seconds: 5)), '6:05');
+    expect(clock(const Duration(hours: 1, minutes: 2, seconds: 3)), '1:02:03');
+    expect(clock(Duration.zero), '0:00');
+  });
+
   test('log lines: tool calls in mono, Vietnamese in the app font', () {
     expect(lineStyle(r'$ npm test   18/18 ✓', 13, const Color(0xFFFFFFFF)).fontFamily, mono);
     expect(lineStyle('Edit a.ts   +12 −3', 13, const Color(0xFFFFFFFF)).fontFamily, mono);

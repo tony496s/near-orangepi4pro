@@ -63,6 +63,13 @@ class AgentConsole extends ChangeNotifier {
   static const autoWhyFor = Duration(seconds: 12);
   static const autoTask = 'Thêm hiệu ứng chờ cho nút đăng nhập';
 
+  /// Left alone this long, the strip goes back to the opening scene, so run times stay believable (a strip left on
+  /// overnight would otherwise show agents running for hours, waiting on a human who never came).
+  static const idleReset = Duration(minutes: 15);
+  DateTime _touchedAt = DateTime(0);
+
+  void _touch() => _touchedAt = clock.now();
+
   bool _mainTaken = false;
   int _listenSeq = 0;
   int _laneSeq = 0;
@@ -104,10 +111,12 @@ class AgentConsole extends ChangeNotifier {
     _whyAt = null;
     _mainTaken = false;
     _autoFrom = now;
+    _touchedAt = now;
     notifyListeners();
   }
 
   void setAutoplay(bool on) {
+    _touch();
     autoplay = on;
     _autoFrom = clock.now();
     notifyListeners();
@@ -159,6 +168,10 @@ class AgentConsole extends ChangeNotifier {
       changed = true;
     }
     if (autoplay) _autoStep(now);
+    if (!autoplay && voicePhase == VoicePhase.idle && !now.isBefore(_touchedAt.add(idleReset))) {
+      reset();
+      return;
+    }
     if (note != null && _noteUntil != null && now.isAfter(_noteUntil!)) {
       note = null;
       changed = true;
@@ -247,6 +260,7 @@ class AgentConsole extends ChangeNotifier {
   void resolve(Lane lane, int choice) {
     final next = lane.pending;
     if (next == null) return;
+    _touch();
     final now = clock.now();
     final card = lane.card;
     if (card is QuestionCard && choice >= 0 && choice < card.options.length) lane.addLog('Anh chọn: ${card.options[choice]}');
@@ -266,6 +280,7 @@ class AgentConsole extends ChangeNotifier {
   /// Ships a lane that is ready for it (button or "ship bản test").
   void ship(Lane lane) {
     if (!lane.shippable) return;
+    _touch();
     final now = clock.now();
     lane
       ..shippable = false
@@ -281,6 +296,7 @@ class AgentConsole extends ChangeNotifier {
   }
 
   void showWhy(bool on) {
+    _touch();
     why = on;
     _whyAt = null;
     _autoFrom = clock.now(); // autoplay keeps a screen opened by hand for its full time too
@@ -289,12 +305,14 @@ class AgentConsole extends ChangeNotifier {
 
   void toggleLang() {
     if (!langs.contains('en')) return;
+    _touch();
     lang = lang == 'vi' ? 'en' : 'vi';
     notifyListeners();
   }
 
   /// The mic: starts listening, or ends a listen so what was said gets transcribed.
   void talk() {
+    _touch();
     switch (voicePhase) {
       case VoicePhase.listening:
         voice.finish();
@@ -394,6 +412,7 @@ class AgentConsole extends ChangeNotifier {
 
   /// Opens a lane for [task]. The first one after a reset runs the login story; later ones a short generic run.
   Lane? addTask(String task, {bool voiceGiven = false}) {
+    _touch();
     if (lanes.length >= maxLanes) {
       final i = lanes.indexWhere((l) => l.state == LaneState.done);
       if (i < 0) {

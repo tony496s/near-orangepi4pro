@@ -306,6 +306,25 @@ void main() {
       expect(r.console.addTask('Thêm loading')!.repo, 'harness-mobile');
     });
 
+    test('left alone for 15 minutes, the strip goes back to the opening scene', () {
+      final r = Rig();
+      r.say('THÊM HIỆU ỨNG CHỜ');
+      r.run(AgentConsole.idleReset - const Duration(seconds: 1));
+      expect(r.console.lanes, hasLength(4));
+      r.run(const Duration(seconds: 2));
+      expect(r.console.lanes, hasLength(3));
+      expect(r.lane('backend').elapsed(r.clock.now()), lessThan(const Duration(minutes: 6, seconds: 15)));
+    });
+
+    test('a touch restarts the idle wait', () {
+      final r = Rig();
+      r.run(AgentConsole.idleReset - const Duration(minutes: 1));
+      r.console.showWhy(true);
+      r.console.showWhy(false);
+      r.run(const Duration(minutes: 2));
+      expect(r.console.lanes.first.elapsed(r.clock.now()), greaterThan(const Duration(minutes: 20)));
+    });
+
     test('RAM grows with running agents', () {
       final r = Rig();
       final three = r.console.ramGb;

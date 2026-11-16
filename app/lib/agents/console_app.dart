@@ -41,10 +41,11 @@ Color stateColor(LaneState s) => switch (s) {
       LaneState.done => Ink.dim,
     };
 
+/// Run time as m:ss, or h:mm:ss from an hour on.
 String clock(Duration d) {
-  final m = d.inMinutes;
-  final s = d.inSeconds % 60;
-  return '$m:${s.toString().padLeft(2, '0')}';
+  String two(int n) => n.toString().padLeft(2, '0');
+  final s = two(d.inSeconds % 60);
+  return d.inHours > 0 ? '${d.inHours}:${two(d.inMinutes % 60)}:$s' : '${d.inMinutes}:$s';
 }
 
 /// Root of the agent console: the 1480x320 strip scaled to the screen.
