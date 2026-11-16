@@ -72,3 +72,10 @@ python3 -m unittest discover -s deploy -p 'test_*.py'
   It only moves while 14:00 is still ahead; restart `near-app` to start over.
 - Take the board off Wi-Fi: within about 40 s the strip shows "MẤT MẠNG" with the time the calendar was last fetched.
   Timers and Vietnamese voice commands keep working (speech to text runs on the board).
+
+## Demo: agent console (`feat/agent-console`)
+
+A second app in the same bundle: `NEAR_MODE=agents` shows the agent console (agents running in the box, given work by
+voice) instead of the day strip. It is deployed next to the strip, in `~/near/app-agents`, and switched on with a systemd
+drop-in, so going back is one file away. Steps, the demo script and the hidden controls:
+`docs/superpowers/specs/2026-11-17-agent-console-demo-design.md` (sections 4–6).

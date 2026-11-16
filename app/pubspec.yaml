@@ -35,3 +35,10 @@ flutter:
           weight: 600
         - asset: fonts/BeVietnamPro-Bold.ttf
           weight: 700
+    # DejaVu Sans Mono (fonts/DejaVu-LICENSE.txt): agent logs on the agent console, and the fallback for symbols
+    # Be Vietnam Pro lacks (✓ ✗ ★).
+    - family: NearMono
+      fonts:
+        - asset: fonts/DejaVuSansMono.ttf
+        - asset: fonts/DejaVuSansMono-Bold.ttf
+          weight: 700
