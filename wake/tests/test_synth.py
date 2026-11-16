@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 import wave
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -410,6 +410,34 @@ class CliTest(unittest.TestCase):
         self.assertEqual(len(list(out.glob("positive-vi_*.wav"))), 5)
         self.assertTrue(built and all(b[3] == 3 for b in built))
         self.assertTrue({r["voice"] for r in rows(out)} <= {v.name for v in voices})
+
+    def test_cli_speed_range_reaches_every_clip(self):
+        root = tmpdir(self)
+        voice = self.voice_dir(root, "vits-piper-vi_VN-vais1000-medium")
+        tts = []
+
+        def fake_sherpa_tts(voice_dir, noise_scale, noise_scale_w, threads=1):
+            tts.append(FakeTts(voice_dir, noise_scale, noise_scale_w))
+            return tts[-1]
+
+        out = root / "out"
+        argv = ["--voice", str(voice), "--texts", "positive-vi", "--n", "20", "--out", str(out), "--speed", "0.5,0.7"]
+        with mock.patch.object(synth, "sherpa_tts", fake_sherpa_tts), redirect_stdout(io.StringIO()):
+            self.assertEqual(synth.main(argv), 0)
+        speeds = [call[2] for t in tts for call in t.calls]
+        self.assertEqual(len(speeds), 20)
+        self.assertTrue(all(0.5 <= s <= 0.7 for s in speeds), speeds)
+        self.assertTrue(all(0.5 <= float(r["speed"]) <= 0.7 for r in rows(out)))
+
+    def test_cli_rejects_a_bad_speed_range(self):
+        for bad in ["0.8", "0.9,0.5", "0,1", "a,b"]:
+            with self.subTest(bad=bad), self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+                synth.main(["--voice", "x", "--texts", "positive-vi", "--n", "1", "--out", "o", "--speed", bad])
+
+    def test_plan_clip_default_speed_range_is_unchanged(self):
+        plans = [synth.plan_clip(i, 0, "x", 1, 1) for i in range(50)]
+        self.assertEqual(plans, [synth.plan_clip(i, 0, "x", 1, 1, synth.SPEED_RANGE) for i in range(50)])
+        self.assertTrue(all(0.5 <= synth.plan_clip(i, 0, "x", 1, 1, (0.5, 0.6)).speed <= 0.6 for i in range(50)))
 
     def test_cli_rejects_an_incomplete_voice_dir(self):
         root = tmpdir(self)

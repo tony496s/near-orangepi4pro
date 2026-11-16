@@ -1,17 +1,18 @@
 """Synthetic "Hey Near" (and near-miss) clips from Piper VITS voices through sherpa-onnx, for openWakeWord training.
 
   python3 -m near_wake.synth --voice DIR [--voice DIR ...] --texts positive-en|positive-vi|adversarial-vi|adversarial-en
-                             --n N --out DIR [--seed S]
+                             --n N --out DIR [--seed S] [--speed MIN,MAX]
 
-Clip i picks a voice, a speaker, a text, a speed (0.8-1.25) and a noise setting, all from (seed, i) alone, so a run is
+Clip i picks a voice, a speaker, a text, a speed (--speed, 0.8-1.25 by default) and a noise setting, all from (seed, i) alone, so a run is
 reproducible and can be resumed: clips already written (WAV file and manifest row) are skipped. Each clip is resampled
 to 16 kHz mono, trimmed of silence at both ends and normalized to a peak between -3 and -1 dBFS, then written as
 <out>/<texts>_<NNNNN>.wav (16-bit) with a row in <out>/manifest.csv.
 
 A voice dir is what sherpa-onnx ships for a Piper voice: one *.onnx model, tokens.txt and espeak-ng-data/. VITS fixes
 noise_scale, noise_scale_w and length_scale when the OfflineTts object is built, so each voice gets one object per
-noise setting (built on first use); speed is a per-call argument of generate(). The audio data and models never go
-into git.
+noise setting (built on first use); speed is a per-call argument of generate(). The Vietnamese voices vais1000 and
+25hours_single say "hây nia" in about 0.3 s, far faster than people do: run them with a lower --speed (e.g. 0.5,0.8).
+The audio data and models never go into git.
 """
 
 from __future__ import annotations
@@ -247,12 +248,13 @@ class ClipPlan:
     peak_dbfs: float
 
 
-def plan_clip(index: int, seed: int, text: str, n_voices: int, n_noise: int) -> ClipPlan:
+def plan_clip(index: int, seed: int, text: str, n_voices: int, n_noise: int,
+              speed_range: Tuple[float, float] = SPEED_RANGE) -> ClipPlan:
     """Choices for clip [index], from (seed, index) alone: skipping or redoing other clips never changes them."""
     rng = random.Random(f"near-wake-synth:{seed}:{index}")
     voice = rng.randrange(n_voices)
     noise = rng.randrange(n_noise)
-    speed = round(rng.uniform(*SPEED_RANGE), 3)
+    speed = round(rng.uniform(*speed_range), 3)
     speaker_u = rng.random()
     peak = round(rng.uniform(*PEAK_DBFS_RANGE), 2)
     return ClipPlan(index, text, voice, noise, speed, speaker_u, peak)
@@ -307,7 +309,8 @@ def append_manifest(path, row: Dict[str, object]) -> None:
 
 def synthesize(voice_dirs: Sequence[str], set_name: str, n: int, out_dir, seed: int = 0,
                factory: Optional[TtsFactory] = None, noise_settings: Sequence[Tuple[float, float]] = NOISE_SETTINGS,
-               log: Callable[[str], None] = print) -> Dict[str, int]:
+               log: Callable[[str], None] = print,
+               speed_range: Tuple[float, float] = SPEED_RANGE) -> Dict[str, int]:
     """Writes clips 0..n-1 of [set_name] into [out_dir]; returns counts of written, skipped and failed clips.
 
     A clip counts as done when its WAV exists and the manifest has its row; anything else is (re)synthesized. The
@@ -327,7 +330,7 @@ def synthesize(voice_dirs: Sequence[str], set_name: str, n: int, out_dir, seed: 
         if name in done:
             counts["skipped"] += 1
             continue
-        plan = plan_clip(i, seed, text, len(pool.voice_dirs), len(pool.noise_settings))
+        plan = plan_clip(i, seed, text, len(pool.voice_dirs), len(pool.noise_settings), speed_range)
         tts = pool.tts(plan.voice, plan.noise)
         sid = speaker_for(plan.speaker_u, getattr(tts, "num_speakers", 1))
         audio = tts.generate(text, sid=sid, speed=plan.speed)
@@ -349,6 +352,17 @@ def synthesize(voice_dirs: Sequence[str], set_name: str, n: int, out_dir, seed: 
     return counts
 
 
+def parse_speed_range(value: str) -> Tuple[float, float]:
+    """"0.5,0.8" -> (0.5, 0.8): both positive, MIN <= MAX."""
+    try:
+        lo, hi = (float(x) for x in value.split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected MIN,MAX, got {value!r}") from None
+    if not (0.0 < lo <= hi):
+        raise argparse.ArgumentTypeError(f"need 0 < MIN <= MAX, got {value!r}")
+    return (lo, hi)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(prog="python3 -m near_wake.synth", description=__doc__.splitlines()[0])
     p.add_argument("--voice", action="append", required=True, metavar="DIR",
@@ -358,13 +372,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--threads", type=int, default=2, help="sherpa-onnx threads per TTS object")
+    p.add_argument("--speed", type=parse_speed_range, default=SPEED_RANGE, metavar="MIN,MAX",
+                   help="speed range passed to the TTS, 1.0 = the voice's own pace (default 0.8,1.25)")
     args = p.parse_args(argv)
     if args.n < 0:
         p.error("--n must be >= 0")
     for v in args.voice:
         find_voice_files(v)  # fail before any work if a voice dir is incomplete
     factory = lambda d, ns, nsw: sherpa_tts(d, ns, nsw, threads=args.threads)  # noqa: E731
-    counts = synthesize(args.voice, args.texts, args.n, args.out, seed=args.seed, factory=factory)
+    counts = synthesize(args.voice, args.texts, args.n, args.out, seed=args.seed, factory=factory,
+                        speed_range=args.speed)
     print(f"{args.texts}: {counts['written']} written, {counts['skipped']} skipped, {counts['failed']} failed "
           f"-> {args.out}")
     return 1 if counts["failed"] and not counts["written"] and not counts["skipped"] else 0
