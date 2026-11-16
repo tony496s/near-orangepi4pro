@@ -50,9 +50,9 @@ class RecapScreen extends StatelessWidget {
             ),
           ),
           Positioned(
-            right: 112, // clear of the mic button
+            right: micZoneWidth, // its tappable rows must not reach under the mic's touch zone
             top: 30,
-            width: 470,
+            width: 462,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

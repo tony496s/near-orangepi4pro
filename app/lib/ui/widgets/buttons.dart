@@ -41,6 +41,9 @@ class Pill extends StatelessWidget {
 }
 
 /// The round mic button in the top-right corner. Dimmed while the voice service is not ready.
+///
+/// It fills the [micZoneWidth] x [micZoneHeight] corner, so place it at right 0, top 0: the whole zone takes the tap,
+/// the circle is drawn 24 px from the right and 22 px from the top.
 class MicButton extends StatelessWidget {
   const MicButton({super.key, required this.ready, required this.onTap, this.warning = false, this.dim = false});
 
@@ -60,32 +63,40 @@ class MicButton extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: SizedBox(
-        width: 64,
-        height: 64,
-        child: Stack(
-          children: [
-            Opacity(
-              opacity: (ready ? 1 : .4) * (dim ? .35 : 1),
-              child: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0x1AF2EEE6),
-                  border: Border.all(color: const Color(0x52F2EEE6), width: 1.5),
-                ),
-                child: CustomPaint(painter: _MicGlyph()),
-              ),
-            ),
-            if (warning)
-              Positioned(
-                right: 2,
-                top: 2,
-                child: Container(width: 12, height: 12, decoration: const BoxDecoration(color: Ink.hot, shape: BoxShape.circle)),
-              ),
-          ],
+        width: micZoneWidth,
+        height: micZoneHeight,
+        child: Align(
+          alignment: Alignment.topRight,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 22, right: 24),
+            child: SizedBox(key: const Key('mic-circle'), width: 64, height: 64, child: _circle()),
+          ),
         ),
       ),
     );
   }
+
+  Widget _circle() => Stack(
+        children: [
+          Opacity(
+            opacity: (ready ? 1 : .4) * (dim ? .35 : 1),
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0x1AF2EEE6),
+                border: Border.all(color: const Color(0x52F2EEE6), width: 1.5),
+              ),
+              child: CustomPaint(painter: _MicGlyph()),
+            ),
+          ),
+          if (warning)
+            Positioned(
+              right: 2,
+              top: 2,
+              child: Container(width: 12, height: 12, decoration: const BoxDecoration(color: Ink.hot, shape: BoxShape.circle)),
+            ),
+        ],
+      );
 }
 
 class _MicGlyph extends CustomPainter {

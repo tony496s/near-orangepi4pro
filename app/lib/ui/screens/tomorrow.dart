@@ -37,7 +37,7 @@ class TomorrowScreen extends StatelessWidget {
             ),
           ),
           Positioned(
-            right: 120,
+            right: micZoneWidth,
             top: 30,
             width: 600,
             child: Column(

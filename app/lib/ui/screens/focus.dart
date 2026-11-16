@@ -51,9 +51,9 @@ class FocusScreen extends StatelessWidget {
                 textAlign: TextAlign.center, style: ts(16, weight: FontWeight.w500, color: Ink.dim, spacing: 16 * .18)),
           ),
           Positioned(
-            right: 112, // clear of the mic button
+            right: micZoneWidth,
             top: 34,
-            width: 390,
+            width: 382,
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 450),
               transitionBuilder: rise,

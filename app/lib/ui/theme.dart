@@ -60,3 +60,9 @@ enum SkyKind {
 
 const stripWidth = 1480.0;
 const stripHeight = 320.0;
+
+/// Touch area of the mic button: the whole top-right corner, much larger than the 64 px circle drawn in it. On the
+/// board, taps aimed at the circle land 30-45 px left of it (measured 16/11: x 1381-1390 for a circle at 1392-1456),
+/// so a circle-sized target missed every tap. Screen content stays left of this zone.
+const micZoneWidth = 120.0;
+const micZoneHeight = 140.0;

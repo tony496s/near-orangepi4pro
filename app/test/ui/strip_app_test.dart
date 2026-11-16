@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:near_app/app/app_controller.dart';
 import 'package:near_app/data/calendar_source.dart';
+import 'package:near_app/ui/theme.dart' show micZoneWidth, stripWidth;
 import 'package:near_app/voice/voice_client.dart';
 
 import '../support/fonts.dart';
@@ -42,6 +43,37 @@ void main() {
     await h.settle();
     expect(find.text('ĐANG NGHE'), findsOneWidget);
     expect(h.voice.sent.last, 'listen l2');
+  });
+
+  testWidgets('mic: taps that land left of the circle, as measured on the board, still start listening', (tester) async {
+    final h = await StripHarness.pump(tester, at: at(9, 20));
+    expect(tester.getRect(find.byKey(const Key('mic-circle'))), const Rect.fromLTWH(1392, 22, 64, 64),
+        reason: 'the circle is drawn where it was');
+    var n = 0;
+    // Three real taps on the board (16/11) missed the 64 px circle on its left; the last point is the zone's far corner.
+    for (final p in const [Offset(1381, 38), Offset(1390, 36), Offset(1384, 47), Offset(1362, 136)]) {
+      await tester.tapAt(p);
+      await h.settle();
+      expect(h.voice.sent.lastOrNull, 'listen l${++n}', reason: 'tap at $p');
+      h.c.cancelTalk();
+      await h.settle();
+    }
+    await tester.tapAt(const Offset(1350, 60));
+    await h.settle();
+    expect(h.voice.sent.last, 'cancel', reason: 'left of the zone is the event block, not the mic');
+  });
+
+  testWidgets('recap: to-do rows stay clear of the mic touch zone', (tester) async {
+    final h = await StripHarness.pump(tester, at: at(17, 40));
+    await h.say('ghi lại đặt phòng họp thứ năm');
+    await h.run(const Duration(minutes: 10));
+    expect(find.text('CÒN 1 VIỆC · CHẠM ĐỂ ĐÁNH DẤU XONG'), findsOneWidget);
+    final row = tester.getRect(find.byWidgetPredicate((w) => '${w.key}'.contains('recap-')));
+    expect(row.right, lessThanOrEqualTo(stripWidth - micZoneWidth));
+    await tester.tapAt(Offset(row.right - 2, row.center.dy));
+    await h.settle();
+    expect(find.text('CÒN 0 VIỆC · CHẠM ĐỂ ĐÁNH DẤU XONG'), findsOneWidget, reason: 'the far end of a row ticks it off');
+    expect(h.voice.sent.where((m) => m.startsWith('listen')), hasLength(1), reason: 'only the dictation listened');
   });
 
   testWidgets('scenario 1: focus by voice, countdown, done alert, break', (tester) async {
