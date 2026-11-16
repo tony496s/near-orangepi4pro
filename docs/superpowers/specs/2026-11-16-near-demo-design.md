@@ -1,6 +1,6 @@
 # Near: app demo chạy thật trên thanh màn (thiết kế)
 
-> Ngày 2026-11-16. Trạng thái: **chờ duyệt**.
+> Ngày 2026-11-16. Trạng thái: **đã chốt** (2026-11-16): làm cả 5 kịch bản, chạy theo giờ thật, nói bằng nút mic hoặc chạm giữ.
 > Thiết bị: Orange Pi 4 Pro (2×A76 + 6×A55, GPU PowerVR) và màn cảm ứng Waveshare 11,9" 1480×320.
 > Tham khảo: demo HTML `near-demo.html` (5 kịch bản) và số đo Phase 0 (E1–E6).
 
@@ -12,11 +12,11 @@ nào v1 cần thay thì đã nằm sau một interface, còn lại giữ nguyên
 Demo đạt khi:
 
 1. App boot thẳng từ lúc cắm điện, không cần bàn phím hay chuột, và tự lên lại sau khi mất điện.
-2. Người trình bày đi hết các kịch bản trong khoảng 5 phút mà không phải chờ giờ thật, nhờ tua giờ (mục 8).
+2. Demo được cả 5 kịch bản theo **giờ thật**, vào bất cứ lúc nào trong ngày (cách làm ở mục 8).
 3. Lệnh giọng tiếng Việt chạy thật trên board: chạm nút mic, nói, rồi màn đổi trong **≤ 1 giây sau khi ngừng nói**.
    Theo E4: VAD chờ 0,6 s, STT mất 0,17–0,22 s.
-4. Ít nhất 8/10 câu lệnh trong kịch bản chạy đúng bằng giọng thật. Câu nào STT nghe sai thì người trình bày bơm câu đúng
-   từ điện thoại, để buổi demo không bị đứt.
+4. Ít nhất 8/10 câu lệnh trong kịch bản chạy đúng bằng giọng thật. Câu nào nghe sai thì màn hiện chữ đã nghe kèm câu mẫu,
+   để người nói thử lại ngay.
 5. UI giữ 57,7 FPS khi chuyển cảnh; lúc màn đứng yên tốn ≤ 0,5 nhân.
 6. Dùng được hằng ngày ở chế độ thường (giờ thật): hẹn giờ, ghi nhanh, nhắc việc là thật và còn nguyên sau khi reboot.
 
@@ -30,13 +30,14 @@ Demo đạt khi:
 | M1 | **2. Ghi nhanh tới cuối ngày:** ghi nhanh, nhắc việc theo giờ (ghim lên dòng thời gian), tới giờ thì báo và chạm "Xong" hoặc "Nhắc lại", tổng kết cuối ngày, vuốt lên xem ngày mai, đêm thì tắt màn, chạm để xem giờ | Ghi chú và nhắc việc thật |
 | M2 | **4. Lịch tuần, lịch tháng:** "tuần này có gì", "thứ năm rảnh lúc nào", chạm cột để mở ngày, lịch tháng, "còn mấy ngày tới hạn …" | Lịch mẫu |
 | M3 | **3. Chart giá vàng:** mở chart bằng giọng, rê tay xem từng mốc, so với hôm qua, đặt ngưỡng, thu chart về một góc, báo một lần khi giá vượt ngưỡng | Giá mẫu |
+| M4 | **5. Chia màn nhiều cột:** "chia màn ba cột: lịch, giá vàng, hẹn giờ", đổi một cột ("đổi cột giữa sang tỷ giá đô la"), chạm giữ một cột để phóng to, hết giờ thì báo ngay trong cột của nó, "về một cột" (bố cục được lưu lại) | Giá vàng và tỷ giá mẫu; timer thật |
 
 **Không có trong demo:**
 
-- Kịch bản 5 (chia ba cột).
 - Wake word: E5 cho thấy model có sẵn không dùng được, nên demo dùng chạm để nói.
 - Lệnh tiếng Anh (STT tiếng Anh sai khoảng 47%).
-- Google Calendar thật, giá vàng thật.
+- Google Calendar thật, giá vàng và tỷ giá thật.
+- Tua giờ và trang điều khiển cho người trình bày (đã chốt: chạy theo giờ thật).
 - Ghép điện thoại bằng QR, cài Wi-Fi, OTA, nhiều người dùng.
 - Tắt hẳn đèn nền ban đêm (phải vá flutter-pi). Demo dùng màn đen: đèn nền vẫn sáng ở nấc người dùng đặt.
 
@@ -67,14 +68,12 @@ Demo đạt khi:
 Hai tiến trình trên board, nói chuyện với nhau qua localhost:
 
 ```
-              điện thoại / laptop (chỉ khi demo)
-                         │ HTTP :8780 (có token)
-┌────────────────────────▼─────────────────────────┐
+┌──────────────────────────────────────────────────┐
 │ near_app  (Flutter, flutter-pi)                  │
 │   UI ── AppController ── Clock                   │
 │              │  ├── CalendarSource  (mẫu → Google ở v1)
-│              │  ├── PriceSource     (mẫu → API thật ở v1)
-│              │  └── LocalStore      (ghi chú, nhắc việc, timer)
+│              │  ├── PriceSource     (vàng, tỷ giá: mẫu → API thật ở v1)
+│              │  └── LocalStore      (ghi chú, nhắc việc, timer, bố cục)
 │              │ Command ◄── IntentParser (Dart)   │
 │              ▲ transcript                        │
 └──────────────┼───────────────────────────────────┘
@@ -103,10 +102,13 @@ Mỗi thư mục làm một việc, và chỉ phụ thuộc vào thư mục nằ
 - **`core/`**
   - `Clock`: interface trả về `now()`.
   - `SystemClock`: giờ thật.
-  - `DemoClock`: có `jumpTo(DateTime)` và tốc độ tua (×1, ×60).
-  - Mọi logic theo giờ đều đọc từ `Clock`, không gọi thẳng `DateTime.now()`. Nhờ vậy vừa tua được khi demo, vừa test được.
+  - `FakeClock` (chỉ dùng trong test): đặt giờ và tua tới bằng tay.
+  - Mọi logic theo giờ đều đọc từ `Clock`, không gọi thẳng `DateTime.now()`, nên test được nhắc việc, chế độ đêm hay tổng kết
+    mà không phải chờ.
 - **`domain/`:** model thuần Dart, không phụ thuộc Flutter.
   - `CalendarEvent`, `FocusTimer`, `Note`, `Reminder`, `PriceSeries`, `PriceAlert`.
+  - `StripLayout`: một cột (dải ngày) hoặc 2–3 cột, mỗi cột là một panel (`calendar`, `gold`, `fx`, `timer`), có thể có
+    một cột đang phóng to.
   - `DayPlan` trả lời các câu hỏi về lịch:
     - `nextEvent(now)`;
     - `freeSlots(day, workHours)`;
@@ -117,16 +119,21 @@ Mỗi thư mục làm một việc, và chỉ phụ thuộc vào thư mục nằ
     - `StartTimer(minutes, focus)`, `CancelTimer`, `WhatsNext`;
     - `AddNote(text)`, `AddReminder(text, at | after)`;
     - `ShowWeek`, `FreeSlots(weekday)`, `ShowMonth`, `DaysUntil(query)`;
-    - `ShowGold`, `CompareGoldYesterday`, `SetGoldAlert(price)`, `GoHome`.
+    - `ShowGold`, `CompareGoldYesterday`, `SetGoldAlert(price)`;
+    - `SplitColumns([panel])`, `ReplaceColumn(position, panel)`, `SingleColumn`;
+    - `ShowRecap`, `ShowTomorrow`, `ScreenOff`, `GoHome`. Ba lệnh đầu gọi tay những màn vốn tự bật theo giờ, để demo
+      được bất cứ lúc nào.
   - Hiểu được chữ số, số đọc bằng chữ ("mười lăm", "hai mươi lăm", "bốn nghìn một trăm năm mươi") và giờ nói kiểu Việt
     ("ba giờ chiều", "tám giờ rưỡi", "sau 20 phút").
   - Chấp nhận output viết hoa không dấu câu của Zipformer, và các biến thể STT hay nghe nhầm, vd. "chart" có thể ra
     "chát". Câu thay thế: "mở biểu đồ vàng".
 - **`data/`:**
   - `CalendarSource` và `PriceSource` là interface.
-  - Bản demo dùng `SampleCalendarSource` (lịch ngày, tuần, tháng của `near-demo.html`, sinh theo ngày thật của tuần hiện
-    tại) và `SampleGoldSource` (chuỗi giá có seed, mỗi lần chạy ra cùng một số).
-  - `LocalStore` lưu ghi chú, nhắc việc, timer đang chạy và ngưỡng giá vào một file JSON:
+  - `SampleCalendarSource`: lịch ngày, tuần, tháng của `near-demo.html`, sinh theo ngày thật của tuần hiện tại.
+  - `SamplePriceSource`: giá vàng (USD/oz, mỗi 5 phút) và tỷ giá USD/VND (mỗi ngày). Chuỗi có seed theo ngày, chạy tới
+    đúng giờ hiện tại, nên chart lúc nào nhìn cũng hợp lý. Ngưỡng được đặt quanh giá hiện tại nên báo vượt ngưỡng vẫn demo
+    được.
+  - `LocalStore` lưu ghi chú, nhắc việc, timer đang chạy, ngưỡng giá và bố cục cột vào một file JSON:
     - ghi qua file tạm, `fsync`, rồi `rename`;
     - file hỏng thì đổi tên sang `.bad` và chạy tiếp với dữ liệu rỗng.
 - **`app/`:**
@@ -138,7 +145,6 @@ Mỗi thư mục làm một việc, và chỉ phụ thuộc vào thư mục nằ
 - **`ui/`:**
   - Token màu và chữ lấy từ demo HTML. Font Be Vietnam Pro (OFL) đóng gói cùng app.
   - Widget: `Timeline`, `Sky`, `Ring`, `LineChart` (CustomPainter), `ListeningOverlay`, `ConfirmCard`.
-- **`control/`:** server HTTP cho người trình bày (mục 8). Chỉ bật khi có `NEAR_DEMO=1`.
 
 ## 6. Voice service (`voice/`)
 
@@ -169,8 +175,9 @@ Mỗi thư mục làm một việc, và chỉ phụ thuộc vào thư mục nằ
 ## 7. Màn hình và luồng
 
 - **Màn nền** (mỗi lúc một màn): `ambient` (mặc định), `focus` (khi phiên tập trung đang chạy), `tomorrow`, `recap`,
-  `week`, `month`, `day`, `gold`.
-  - Không ai chạm trong 60 giây thì mọi màn trừ `focus` tự quay về `ambient`.
+  `week`, `month`, `day`, `gold`, `columns`.
+  - Không ai chạm trong 60 giây thì `tomorrow`, `recap`, `week`, `month`, `day`, `gold` tự quay về màn chính.
+  - Màn chính là `ambient`, hoặc `columns` khi người dùng đang dùng bố cục nhiều cột.
 - **Lớp phủ** (chồng lên màn nền):
   - `listening`: thanh sóng, rồi "đang hiểu…".
   - `confirm`: thẻ xác nhận, tự tắt.
@@ -180,11 +187,13 @@ Mỗi thư mục làm một việc, và chỉ phụ thuộc vào thư mục nằ
   - Chạm thì hiện đồng hồ mờ 10 giây.
   - Riêng alert vẫn hiện được.
 - **Cử chỉ:**
-  - nút mic ở góc phải: nói;
+  - nói: chạm nút mic ở góc phải, hoặc chạm giữ khoảng 0,4 s vào chỗ không phải nút hay sự kiện. Riêng ở `columns`,
+    chạm giữ đã dùng để phóng to cột, nên ở đó chỉ nói bằng nút mic;
   - vuốt lên: xem ngày mai;
   - vuốt xuống: quay về;
   - chạm vào sự kiện hay cột ngày: mở chi tiết;
-  - rê trên chart: xem từng mốc.
+  - rê trên chart: xem từng mốc;
+  - chạm giữ một cột ở `columns`: phóng to cột đó; chạm lần nữa để thu về.
 
 Đường đi của một câu lệnh:
 
@@ -193,25 +202,19 @@ Mỗi thư mục làm một việc, và chỉ phụ thuộc vào thư mục nằ
 3. `parseCommand` dịch chữ ra lệnh, `CommandRunner` chạy lệnh, rồi hiện thẻ `confirm`.
 4. Không hiểu lệnh thì hiện "Chưa hiểu: «…»" kèm 3 câu mẫu.
 
-## 8. Chế độ demo (cho người trình bày)
+## 8. Demo theo giờ thật
 
-Chạy với `NEAR_DEMO=1`, app dùng `DemoClock` và mở HTTP ở cổng 8780.
+Không tua giờ, nên những gì vốn chờ tới giờ thì demo bằng lệnh có thời gian ngắn hoặc lệnh gọi tay:
 
-- Mọi request phải gửi kèm token.
-- Token lấy từ `NEAR_DEMO_TOKEN`. Không đặt thì mỗi lần chạy app tự sinh một token ngẫu nhiên và ghi vào log.
-- Khi đã đăng nhập, trang điều khiển nhớ token trong `localStorage` của điện thoại.
-
-- `GET /`: trang điều khiển, mở được trên điện thoại. Có các nút nhảy tới từng bước của kịch bản, ô gõ câu lệnh, và
-  hiện trạng thái.
-- `POST /api/clock {"at":"09:20"}` hoặc `{"speed":60}`: tua giờ.
-- `POST /api/say {"text":"hẹn giờ 25 phút để tập trung"}`: bơm một câu, đi y như câu nghe từ STT (dùng khi phòng ồn).
-- `POST /api/reset`: đưa dữ liệu demo về ban đầu.
-- `GET /api/state`: màn đang hiện, giờ trên app, câu nghe được gần nhất, độ trễ STT.
-
-Danh sách bước của từng kịch bản để trong một file dữ liệu (`demo/scenarios.json`), cùng giờ và câu nói với
-`near-demo.html`.
-
-Ở v1, server này trở thành API để ghép điện thoại và chỉnh cài đặt. Khi đó phải có xác thực thật, và chế độ demo bị tắt.
+| Muốn cho xem | Cách làm |
+|---|---|
+| Hết giờ tập trung | "hẹn giờ 1 phút để tập trung" |
+| Tới giờ nhắc việc | "nhắc anh gọi chị Lan sau 2 phút" |
+| Nhắc trước cuộc họp | Lịch mẫu luôn có một cuộc họp bắt đầu khoảng 7 phút sau lúc app khởi động (chỉ trong lịch mẫu) |
+| Tổng kết cuối ngày | "tổng kết hôm nay" (17:50 thì tự hiện) |
+| Ngày mai | Vuốt lên, hoặc "ngày mai có gì" |
+| Chế độ đêm | "tắt màn" (23:00 thì tự tắt). Chạm để xem giờ, nói "bật màn" để quay lại |
+| Giá vượt ngưỡng | "báo anh khi vàng vượt …" với giá ngay trên giá hiện tại; giá mẫu sẽ vượt trong vài phút |
 
 ## 9. Xử lý lỗi
 
@@ -223,7 +226,7 @@ Danh sách bước của từng kịch bản để trong một file dữ liệu 
 | Lệnh thiếu thông tin ("nhắc anh gọi chị Lan") | Hỏi lại bằng chữ, kèm nút chọn nhanh: "Lúc nào? 15 phút · 1 giờ · 15:00" |
 | Ghi file lỗi | Giữ trong RAM, hiện chấm cảnh báo nhỏ, 30 giây sau thử ghi lại |
 | File state hỏng | Đổi tên sang `.bad`, chạy với dữ liệu rỗng, ghi log |
-| Giờ hệ thống còn sai (chưa có NTP) | Hiện "đang chờ giờ chuẩn" thay cho đồng hồ, và hoãn các nhắc việc. Chế độ demo không bị ảnh hưởng |
+| Giờ hệ thống còn sai (chưa có NTP) | Hiện "đang chờ giờ chuẩn" thay cho đồng hồ, và hoãn các nhắc việc |
 | App crash | systemd restart. Nếu crash ngay lúc boot thì guard của wrapper bỏ qua UI một lần, như ở Phase 0 |
 
 ## 10. Test
@@ -232,7 +235,8 @@ Danh sách bước của từng kịch bản để trong một file dữ liệu 
   - `parseCommand` với khoảng 60 câu, gồm cả output thật của Zipformer ở E4 (vd. "ĐẶT HẸN GIỜ MƯỜI LĂM PHÚT").
   - Số và giờ nói bằng chữ.
   - Các câu hỏi của `DayPlan`.
-  - Bộ lập lịch: timer, nhắc việc, sắp họp, đêm, ngưỡng giá. Dùng `DemoClock` nên không phải chờ.
+  - Bộ lập lịch: timer, nhắc việc, sắp họp, đêm, ngưỡng giá. Dùng `FakeClock` nên không phải chờ.
+  - `StripLayout`: chia cột, đổi cột, phóng to, lưu và đọc lại.
   - `LocalStore`: ghi nguyên tử, file hỏng.
 - **Widget test ở 1480×320:**
   - Mỗi màn vẽ không bị tràn chữ, kể cả với chuỗi tiếng Việt dài.
@@ -243,7 +247,7 @@ Danh sách bước của từng kịch bản để trong một file dữ liệu 
   - State machine cắt câu, chạy với khung giả lập.
   - Ring buffer đệm đầu câu.
 - **Trên board** (chạy tay, không đưa vào CI):
-  - Chạy từng kịch bản qua `/api/say` và bằng giọng thật.
+  - Chạy từng kịch bản bằng giọng thật, theo bảng ở mục 8.
   - Đo thời gian từ lúc ngừng nói tới lúc màn đổi.
   - Đo FPS và CPU bằng công cụ của Phase 0.
 
@@ -254,7 +258,6 @@ app/        Flutter app (near_app)
 voice/      near-voice: Python + sherpa-onnx, cùng test
 deploy/     build (flutterpi_tool build --arch=arm64 --release), rsync lên board,
             unit systemd (near-app, near-voice), wrapper boot lấy từ Phase 0
-demo/       scenarios.json, trang điều khiển
 docs/       spec và kế hoạch
 ```
 
@@ -270,14 +273,14 @@ Phase 0 vẫn để local.
   - wrapper boot và unit systemd.
 - **Thay:**
   - `SampleCalendarSource` → `GoogleCalendarSource` (đăng nhập qua điện thoại);
-  - `SampleGoldSource` → API giá thật;
-  - server demo → API ghép điện thoại và cài đặt, có xác thực;
+  - `SamplePriceSource` → API giá vàng và tỷ giá thật;
   - màn đen ban đêm → tắt hẳn đèn nền (vá flutter-pi);
   - chạm để nói → thêm wake word khi đã train được model riêng.
-- **Thêm:** QR và cài Wi-Fi, OTA, splash lúc boot, cắt bớt service thừa để boot dưới 10 giây.
+- **Thêm:** API ghép điện thoại và cài đặt (có xác thực), QR và cài Wi-Fi, OTA, splash lúc boot, cắt bớt service thừa để
+  boot dưới 10 giây.
 
-## 13. Cần chốt trước khi code
+## 13. Đã chốt (2026-11-16)
 
-1. Phạm vi và thứ tự: M1 (kịch bản 1 và 2), M2 (lịch), M3 (giá vàng); bỏ kịch bản 5.
-2. Có server điều khiển và bơm câu cho người trình bày (mục 8).
-3. Nút mic cố định ở góc phải. Phương án khác: chạm giữ ở bất kỳ đâu.
+1. Làm cả 5 kịch bản, theo thứ tự M1 (kịch bản 1 và 2), M2 (lịch), M3 (giá vàng), M4 (chia cột).
+2. Không có trang điều khiển hay tua giờ: demo chạy theo giờ thật (mục 8).
+3. Nói bằng nút mic ở góc phải, hoặc chạm giữ vào chỗ trống (trừ ở `columns`).

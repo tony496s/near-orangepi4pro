@@ -10,4 +10,3 @@ Planned layout:
 - `app/` Flutter app, runs on the board with flutter-pi (no X, no Wayland).
 - `voice/` local voice service (sherpa-onnx: Silero VAD + Zipformer-vi), talks to the app over localhost.
 - `deploy/` build, install and systemd units for the board.
-- `demo/` presenter scenarios and control page.
