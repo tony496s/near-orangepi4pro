@@ -1,0 +1,26 @@
+# Near app on the bar display (flutter-pi on DRM/KMS, no X). Installed by install.sh.
+# On:  sudo touch /etc/near/autostart && sudo systemctl start near-app   (stops phase0-flutter and lightdm)
+# Off: sudo rm /etc/near/autostart && sudo systemctl stop near-app near-voice
+[Unit]
+Description=Near desk strip app (flutter-pi on DRM/KMS)
+ConditionPathExists=/etc/near/autostart
+Conflicts=lightdm.service phase0-flutter.service
+Wants=near-voice.service
+# Ordering against the conflicting UIs makes systemd finish stopping them before this starts. Without it both jobs
+# run at once: the new flutter-pi opens DRM while the old one is still master, and stays paused with a black screen.
+After=systemd-udevd.service near-voice.service phase0-flutter.service lightdm.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/near-app-start
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+# Only the wrapper gets SIGTERM; it stops the app itself. With the default (control-group) systemd also TERMs the
+# `rm` the wrapper spawns to clear the guard, so the guard survived a clean stop and the next boot skipped the UI.
+KillMode=mixed
+
+[Install]
+WantedBy=graphical.target

@@ -1,0 +1,21 @@
+# Near voice service: local speech to text on 127.0.0.1:8781 (see voice/README.md). Installed by install.sh.
+[Unit]
+Description=Near voice service (sherpa-onnx STT on localhost)
+ConditionPathExists=/etc/near/autostart
+After=sound.target
+
+[Service]
+Type=simple
+User=orangepi
+Group=orangepi
+SupplementaryGroups=audio
+WorkingDirectory=/home/orangepi/near/voice
+Environment=NEAR_MODELS=/home/orangepi/near/models
+# Both A76 cores (cpu6, cpu7): STT runs 2 threads there, and the UI keeps the A55 cores to itself.
+ExecStart=/usr/bin/taskset -c 6,7 /home/orangepi/near/venv/bin/python -m near_voice
+Restart=always
+RestartSec=2
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target
