@@ -40,7 +40,10 @@ def parse_args(argv: Optional[List[str]] = None, env: Optional[dict] = None) -> 
     a.add_argument("--wav", help="dev: instead of the mic, play this 16 kHz mono WAV at each listen")
     a.add_argument("--stt", choices=("local", "cloud"), default=env.get("NEAR_STT", "local"),
                    help="cloud: Harness /api/voice/stt (Deepgram) first, the local model as the fallback")
-    a.add_argument("--stt-lang", default=env.get("NEAR_STT_LANG", "vi"))
+    a.add_argument("--stt-lang", default=env.get("NEAR_STT_LANG", "vi"),
+                   help="the language --stt cloud asks for (the local model is Vietnamese)")
+    a.add_argument("--stt-en", choices=("off", "harness"), default=env.get("NEAR_STT_EN", "off"),
+                   help="harness: listens that ask for English go to Harness /api/voice/stt?lang=en (Deepgram nova-3)")
     a.add_argument("--cloud-timeout", type=float, default=float(env.get("NEAR_CLOUD_TIMEOUT", "3.0")),
                    help="seconds to wait for the cloud words before using the local ones")
     a.add_argument("--harness-api", default=env.get("NEAR_HARNESS_API", DEFAULT_API))
@@ -71,8 +74,8 @@ async def serve(args: argparse.Namespace) -> None:
             log.error("wake word off: %s: %s", type(e).__name__, e)
     log.info("models loaded in %d ms: %s%s", (time.perf_counter() - t0) * 1000, stt.model,
              f", wake {spotter.model}" if spotter else "")
+    auth = HarnessAuth(args.harness_auth, args.harness_api)
     if args.stt == "cloud":
-        auth = HarnessAuth(args.harness_auth, args.harness_api)
         if not auth.available():
             log.warning("cloud stt: no sign-in at %s yet, the local model answers until there is one",
                         args.harness_auth)
@@ -82,6 +85,11 @@ async def serve(args: argparse.Namespace) -> None:
 
     hub = FrameHub()
     server = VoiceServer(vad, stt, Chimes(args.sounds, args.speaker))
+    if args.stt_en == "harness":
+        # No local fallback: the local model is Vietnamese, and its words for English speech mean nothing.
+        server.engines["en"] = HarnessStt(auth, args.harness_api, "en")
+        log.info("stt en: %s (Deepgram nova-3)%s", args.harness_api,
+                 "" if auth.available() else f", no sign-in at {args.harness_auth} yet")
     hub.add(server.on_frame)
     loop = asyncio.get_running_loop()
     worker = None

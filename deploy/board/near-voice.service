@@ -11,9 +11,11 @@ Group=orangepi
 SupplementaryGroups=audio
 WorkingDirectory=/home/orangepi/near/voice
 Environment=NEAR_MODELS=/home/orangepi/near/models
-# Cloud speech to text first (Harness /api/voice/stt, Deepgram), the local model as the fallback. Until the board has
-# a sign-in (voice/tools/harness_login.py, copied to the file below) the local model answers alone.
-Environment=NEAR_STT=cloud
+# Vietnamese stays on the local model: Deepgram nova-2 through Harness measured 23% WER on the E4 set against 7% for
+# Zipformer, and 2 s slower (phase0 RESULTS.md, E4b). English (the app's VI/EN switch) goes to Harness, Deepgram nova-3
+# (31% WER against 47% for the best local model), once the board has a sign-in (voice/tools/harness_login.py).
+Environment=NEAR_STT=local
+Environment=NEAR_STT_EN=harness
 Environment=NEAR_HARNESS_AUTH=/home/orangepi/near/secrets/harness-auth.json
 # "Hey Near" trial with the stock keyword spotter (Phase 0 E5: catches about 1 in 6). Without its model: no wake word.
 Environment=NEAR_WAKE=kws

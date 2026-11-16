@@ -30,8 +30,9 @@ near/deploy/setup.sh                     # venv, models (copied from ~/phase0/st
 sudo near/deploy/install.sh              # wrapper + units, daemon-reload, enable; does not switch what boots
 ```
 
-`near-voice` runs with cloud speech to text first and the wake word trial on (see the unit). For cloud STT, sign the
-board in once from a Mac, then copy the file (`voice/README.md`); until then the local model answers alone:
+`near-voice` runs Vietnamese on the local model, English (the app's VI/EN switch) through Harness, and the wake word
+trial on (see the unit). For English, sign the board in once from a Mac, then copy the file (`voice/README.md`); until
+then the app shows no VI/EN switch:
 
 ```
 python3 voice/tools/harness_login.py

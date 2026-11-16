@@ -26,7 +26,7 @@ class ParseArgsTest(unittest.TestCase):
 
     def test_cloud_stt_and_wake_are_off_unless_asked(self):
         a = parse_args([], env={})
-        self.assertEqual((a.stt, a.stt_lang, a.cloud_timeout), ("local", "vi", 3.0))
+        self.assertEqual((a.stt, a.stt_lang, a.cloud_timeout, a.stt_en), ("local", "vi", 3.0, "off"))
         self.assertEqual((a.harness_api, a.harness_auth), (DEFAULT_API, DEFAULT_AUTH_FILE))
         self.assertEqual(DEFAULT_API, "https://harness-api.autonomous.ai")
         self.assertEqual((a.wake, a.wake_model, a.wake_keywords), ("off", wake.DEFAULT_MODEL, wake.DEFAULT_KEYWORDS))
@@ -42,9 +42,14 @@ class ParseArgsTest(unittest.TestCase):
         self.assertEqual((a.wake, a.wake_threshold, a.wake_score, a.wake_keywords), ("kws", 0.1, 1.5, "/k.txt"))
         self.assertEqual(parse_args(["--stt", "local", "--wake", "off"], env=env).stt, "local")
 
+    def test_english_through_harness_from_the_environment(self):
+        self.assertEqual(parse_args([], env={"NEAR_STT_EN": "harness"}).stt_en, "harness")
+        self.assertEqual(parse_args(["--stt-en", "off"], env={"NEAR_STT_EN": "harness"}).stt_en, "off")
+
     def test_unknown_engines_are_refused(self):
-        with self.assertRaises(SystemExit):
-            parse_args(["--stt", "whisper"], env={})
+        for argv in (["--stt", "whisper"], ["--stt-en", "parakeet"]):
+            with self.subTest(argv=argv), self.assertRaises(SystemExit):
+                parse_args(argv, env={})
 
 
 if __name__ == "__main__":

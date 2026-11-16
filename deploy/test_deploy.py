@@ -86,7 +86,7 @@ class UnitFilesTest(unittest.TestCase):
         self.assertEqual(exec_start[3:], ["/home/orangepi/near/venv/bin/python", "-m", "near_voice"])
         self.assertEqual(u[("Service", "WorkingDirectory")], ["/home/orangepi/near/voice"])
         self.assertEqual(u[("Service", "Environment")], [
-            "NEAR_MODELS=/home/orangepi/near/models", "NEAR_STT=cloud",
+            "NEAR_MODELS=/home/orangepi/near/models", "NEAR_STT=local", "NEAR_STT_EN=harness",
             "NEAR_HARNESS_AUTH=/home/orangepi/near/secrets/harness-auth.json", "NEAR_WAKE=kws"])
         self.assertEqual(u[("Unit", "ConditionPathExists")], ["/etc/near/autostart"])
 

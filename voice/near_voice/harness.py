@@ -215,6 +215,10 @@ class HarnessStt:
         self.timeout_s = timeout_s
         self._post = post
 
+    def available(self) -> bool:
+        """Whether there is a sign-in to try (VoiceServer.langs leaves the language out until there is)."""
+        return self.auth.available()
+
     def transcribe(self, pcm: bytes) -> str:
         body, content_type = multipart_file("file", "voice.wav", "audio/wav", wav_bytes(pcm))
         status, res = 0, {}

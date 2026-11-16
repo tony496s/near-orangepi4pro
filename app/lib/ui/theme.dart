@@ -63,6 +63,10 @@ const stripHeight = 320.0;
 
 /// Touch area of the mic button: the whole top-right corner, much larger than the 64 px circle drawn in it. On the
 /// board, taps aimed at the circle land 30-45 px left of it (measured 16/11: x 1381-1390 for a circle at 1392-1456),
-/// so a circle-sized target missed every tap. Screen content stays left of this zone.
+/// so a circle-sized target missed every tap. Screen content stays left of this zone. The real taps were all at
+/// y <= 47, so the zone stops at 100 and the VI/EN switch takes the rest of the column down to the timeline (y 212).
 const micZoneWidth = 120.0;
-const micZoneHeight = 140.0;
+const micZoneHeight = 100.0;
+
+/// Touch area of the VI/EN switch, right under the mic zone and as wide (taps here land left of the aim too).
+const langZoneHeight = 100.0;

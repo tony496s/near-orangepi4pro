@@ -19,7 +19,13 @@ class FakeVoice implements VoiceLink {
   bool get ready => isReady;
 
   @override
-  void listen(String id) => sent.add('listen $id');
+  void listen(String id, {String lang = 'vi'}) {
+    sent.add('listen $id');
+    listenLangs.add(lang);
+  }
+
+  /// The language of every listen, in order (apart from [sent], whose entries tests split for the id).
+  final listenLangs = <String>[];
 
   @override
   void cancel() => sent.add('cancel');

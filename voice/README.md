@@ -40,11 +40,18 @@ python3 tools/try_listen.py --chime soft
 
 `--wav file.wav` replaces the mic with a 16 kHz mono WAV played at each listen (latency checks without speaking).
 Settings also come from the environment: `NEAR_VOICE_PORT`, `NEAR_MODELS`, `NEAR_STT_MODEL`, `NEAR_MIC`,
-`NEAR_SPEAKER`, `NEAR_SOUNDS`, and for the options below `NEAR_STT`, `NEAR_STT_LANG`, `NEAR_CLOUD_TIMEOUT`,
+`NEAR_SPEAKER`, `NEAR_SOUNDS`, and for the options below `NEAR_STT`, `NEAR_STT_LANG`, `NEAR_STT_EN`, `NEAR_CLOUD_TIMEOUT`,
 `NEAR_HARNESS_API`, `NEAR_HARNESS_AUTH`, `NEAR_WAKE`, `NEAR_WAKE_MODEL`, `NEAR_WAKE_KEYWORDS`, `NEAR_WAKE_THRESHOLD`,
 `NEAR_WAKE_SCORE`.
 
-### Cloud speech to text (`--stt cloud`)
+### English through Harness (`--stt-en harness`), cloud speech to text (`--stt cloud`)
+
+A `listen` may name its language: `{"cmd":"listen","id":"l1","lang":"en"}` (no `lang`: Vietnamese). With
+`--stt-en harness`, English goes to Harness `/api/voice/stt?lang=en` (Deepgram nova-3) with no local fallback (the
+local model is Vietnamese); a failure is an `error`. `ready` lists the languages on offer (`"langs":["vi","en"]`), English
+only while there is a sign-in; the app shows its VI/EN switch then. Measured on the E4 set (phase0 RESULTS.md, E4b):
+nova-3 31% English WER, p95 1.5 s; for Vietnamese, nova-2 did worse than Zipformer (23% against 7%), so `--stt cloud`
+(cloud words first for the default language) stays off on the board.
 
 The board signs in to Harness once, with its own sign-in (never a copy of a computer's `~/.harness/auth`):
 

@@ -4,6 +4,9 @@ Audio path: mic -> FrameHub -> on_frame (ring buffer always; VAD + Segmenter onl
 thread -> "final". VAD and STT do not run outside a listen. Audio never leaves RAM, except the utterance itself when a
 cloud STT engine is configured (harness.py).
 
+Languages: [stt] transcribes the default one ([lang], Vietnamese); [engines] may add others, e.g. English through the
+Harness backend. A "listen" names its language; one the service does not have is answered with "error".
+
 Wake word (wake.py, optional): a hit sends "wake"; the app answers with an ordinary "listen", and a listen that comes
 within [wake_listen_s] starts right after the wake word instead of 0.5 s back, so "Hey Near" is not transcribed.
 """
@@ -15,7 +18,7 @@ import logging
 import time
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from . import protocol as p
 from .audio import Frame, RingBuffer, frames_for, level_db
@@ -37,6 +40,7 @@ MAX_CLIENT_BUFFER = 1 << 20
 class _Listen:
     id: str
     seg: Segmenter
+    stt: SttEngine
     levels: List[bytes] = field(default_factory=list)
     watchdog: Optional[asyncio.TimerHandle] = None
 
@@ -54,10 +58,14 @@ class VoiceServer:
         level_every: int = 3,
         no_audio_grace_s: float = 1.0,
         wake_listen_s: float = 1.5,
+        lang: str = "vi",
         executor: Optional[Executor] = None,
     ) -> None:
         self.vad = vad
         self.stt = stt
+        self.lang = lang
+        # Engines for other languages than [lang], by language code.
+        self.engines: Dict[str, SttEngine] = {}
         self.chimes = chimes
         self.config = config
         self.ring = RingBuffer(frames_for(max(ring_s, preroll_s)))
@@ -144,11 +152,26 @@ class VoiceServer:
             return None
         return index
 
+    # ---- languages
+
+    def langs(self) -> List[str]:
+        """The languages a listen may ask for, the default first. An engine with available() (a cloud one without a
+        sign-in) is left out while it says no."""
+        extra = [lang for lang, e in sorted(self.engines.items())
+                 if lang != self.lang and getattr(e, "available", lambda: True)()]
+        return [self.lang, *extra]
+
+    def engine_for(self, lang: Optional[str]) -> Optional[SttEngine]:
+        if lang is None or lang == self.lang:
+            return self.stt
+        return self.engines.get(lang)
+
     # ---- commands
 
-    def begin_listen(self, id_: str, from_index: Optional[int] = None) -> None:
+    def begin_listen(self, id_: str, from_index: Optional[int] = None, stt: Optional[SttEngine] = None) -> None:
         """Starts a listen. The utterance may begin [preroll_s] before now, or at frame [from_index] when given
-        (e.g. right after a wake word, so the wake word itself is not transcribed)."""
+        (e.g. right after a wake word, so the wake word itself is not transcribed). [stt] transcribes it (default:
+        the default language's engine)."""
         for hook in self.before_listen:
             try:
                 hook(id_)
@@ -156,12 +179,13 @@ class VoiceServer:
                 log.exception("before_listen hook failed")
         self._stop_listen()
         self.vad.reset()
-        listen = _Listen(id_, Segmenter(self.config))
+        listen = _Listen(id_, Segmenter(self.config), stt or self.stt)
         self._listen = listen
         self._awaiting = id_
         self._send(p.listening(id_))
         pre = self.ring.since(from_index) if from_index is not None else self.ring.last(self._preroll)
-        log.info("listen %s: start (%d frames before)", id_, len(pre))
+        log.info("listen %s: start (%d frames before)%s", id_, len(pre),
+                 "" if listen.stt is self.stt else f", {listen.stt.name}")
         for f in pre:
             result = listen.seg.feed(f.pcm, self.vad.is_speech(f.pcm), live=False)
             if result is not None:
@@ -197,7 +221,13 @@ class VoiceServer:
                 sender.write(p.error(f"bad command: {e}"))
             return
         if isinstance(cmd, p.Listen):
-            self.begin_listen(cmd.id, self._take_wake())
+            from_index = self._take_wake()
+            stt = self.engine_for(cmd.lang)
+            if stt is None:
+                log.warning("listen %s: no %r engine (have %s)", cmd.id, cmd.lang, ", ".join(self.langs()))
+                self._send(p.error(f"stt: no {cmd.lang} engine"))
+                return
+            self.begin_listen(cmd.id, from_index, stt)
         elif isinstance(cmd, p.Cancel):
             self.cancel()
         elif isinstance(cmd, p.Finish):
@@ -240,13 +270,13 @@ class VoiceServer:
             self._send(p.timeout(listen.id, reason))
             return
         self._send(p.processing(listen.id))
-        self._spawn(self._transcribe(listen.id, result))
+        self._spawn(self._transcribe(listen.id, result, listen.stt))
 
-    async def _transcribe(self, id_: str, utt: Utterance) -> None:
+    async def _transcribe(self, id_: str, utt: Utterance, stt: Optional[SttEngine] = None) -> None:
         loop = asyncio.get_running_loop()
         t0 = time.perf_counter()
         try:
-            text, engine = await loop.run_in_executor(self._executor, self._run_stt, utt.pcm)
+            text, engine = await loop.run_in_executor(self._executor, self._run_stt, stt or self.stt, utt.pcm)
         except Exception as e:  # noqa: BLE001
             log.exception("stt failed")
             if self._awaiting == id_:
@@ -263,10 +293,11 @@ class VoiceServer:
         self._awaiting = None
         self._send(p.final(id_, text, utt.audio_ms, stt_ms, engine))
 
-    def _run_stt(self, pcm: bytes) -> Tuple[str, str]:
+    @staticmethod
+    def _run_stt(stt: SttEngine, pcm: bytes) -> Tuple[str, str]:
         """On the STT thread: the words, and the engine that gave them (CloudFirstStt says which one answered)."""
-        text = self.stt.transcribe(pcm)
-        return text, getattr(self.stt, "last_engine", None) or self.stt.name
+        text = stt.transcribe(pcm)
+        return text, getattr(stt, "last_engine", None) or stt.name
 
     def _spawn(self, coro) -> None:
         task = asyncio.ensure_future(coro)
@@ -288,7 +319,7 @@ class VoiceServer:
     async def _serve_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._clients.add(writer)
         log.info("app connected (%d)", len(self._clients))
-        writer.write(p.ready(self.stt.model, self.stt.name, wake=self.wake_engine or "off"))
+        writer.write(p.ready(self.stt.model, self.stt.name, wake=self.wake_engine or "off", langs=self.langs()))
         try:
             while True:
                 try:

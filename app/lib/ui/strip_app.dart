@@ -102,6 +102,9 @@ class _Strip extends StatelessWidget {
             ),
             if (showMic && alert == null)
               Positioned(right: 0, top: 0, child: MicButton(ready: c.micReady, warning: c.saveFailing, dim: night, onTap: c.talk)),
+            if (showMic && alert == null && c.englishAvailable)
+              Positioned(
+                  right: 0, top: micZoneHeight, child: LangSwitch(lang: c.voiceLang, dim: night, onTap: c.toggleVoiceLang)),
             if (c.askTime != null && c.listening == null)
               Positioned.fill(child: AskTimeOverlay(ask: c.askTime!, onAnswer: c.answerAskTime)),
             Positioned.fill(

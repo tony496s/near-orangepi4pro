@@ -36,6 +36,14 @@ void main() {
     expect(File('${store.file.path}.tmp').existsSync(), isFalse, reason: 'temp file renamed into place');
   });
 
+  test('the VI/EN switch is kept; Vietnamese when missing or unknown', () async {
+    final store = tempStore();
+    await store.save(sample()..voiceLang = 'en');
+    expect((await store.load()).voiceLang, 'en');
+    expect(StoredState.fromJson({}).voiceLang, 'vi', reason: 'a state file from before the switch');
+    expect(StoredState.fromJson({'voiceLang': 'fr'}).voiceLang, 'vi');
+  });
+
   test('serialized saves: the last one wins', () async {
     final store = tempStore();
     final a = sample();

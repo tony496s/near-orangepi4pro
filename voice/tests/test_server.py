@@ -115,7 +115,8 @@ class ListenTest(ServerTestBase):
         reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
         ev = json.loads(await reader.readline())
         await Client(reader, writer).close()
-        self.assertEqual(ev, {"ev": "ready", "model": "fake-model", "stt": "fake", "tts": False, "wake": "off"})
+        self.assertEqual(ev, {"ev": "ready", "model": "fake-model", "stt": "fake", "tts": False, "wake": "off",
+                              "langs": ["vi"]})
 
     async def test_utterance_gives_processing_then_final(self):
         await self.listen("a1")
@@ -350,6 +351,64 @@ class EngineNameTest(ServerTestBase):
         await self.client.expect("final", id="a1", engine="zipformer")
 
 
+class LanguageTest(ServerTestBase):
+    """A listen names its language; English goes to its own engine (Harness in production)."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.en = FakeStt(text="Set a timer for 10 minutes.")
+        self.en.name, self.en.model = "deepgram", "harness-stt-en"
+        self.en.available = lambda: self.en_signed_in
+        self.en_signed_in = True
+        self.server.engines["en"] = self.en
+
+    async def ready(self) -> dict:
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
+        ev = json.loads(await reader.readline())
+        await Client(reader, writer).close()
+        return ev
+
+    async def test_ready_lists_the_default_language_first(self):
+        self.assertEqual((await self.ready())["langs"], ["vi", "en"])
+
+    async def test_english_is_left_out_until_there_is_a_sign_in(self):
+        self.en_signed_in = False
+        self.assertEqual((await self.ready())["langs"], ["vi"])
+
+    async def test_an_english_listen_goes_to_the_english_engine_only(self):
+        self.client.send({"cmd": "listen", "id": "e1", "lang": "en"})
+        await self.client.expect("listening", id="e1")
+        self.utterance()
+        await self.client.expect("processing", id="e1")
+        await self.client.expect("final", id="e1", text="Set a timer for 10 minutes.", engine="deepgram")
+        self.assertEqual((len(self.en.calls), len(self.stt.calls)), (1, 0))
+
+    async def test_vi_or_no_lang_uses_the_default_engine(self):
+        for id_, cmd in [("v1", {"lang": "vi"}), ("v2", {})]:
+            with self.subTest(cmd=cmd):
+                self.client.send({"cmd": "listen", "id": id_, **cmd})
+                await self.client.expect("listening", id=id_)
+                self.utterance()
+                await self.client.expect("processing", id=id_)
+                await self.client.expect("final", id=id_, engine="fake")
+        self.assertEqual((len(self.en.calls), len(self.stt.calls)), (0, 2))
+
+    async def test_a_language_the_service_lacks_is_an_error_and_no_listen(self):
+        self.client.send({"cmd": "listen", "id": "f1", "lang": "fr"})
+        await self.client.expect("error", msg="stt: no fr engine")
+        self.assertIsNone(self.server._listen)
+        await self.listen("v1")  # the next listen works
+
+    async def test_a_failing_english_engine_is_an_error_not_vietnamese_words(self):
+        self.en.fail = RuntimeError("HTTP 429 RATE_LIMITED")
+        self.client.send({"cmd": "listen", "id": "e1", "lang": "en"})
+        await self.client.expect("listening", id="e1")
+        self.utterance()
+        await self.client.expect("processing", id="e1")
+        await self.client.expect("error")
+        self.assertEqual(self.stt.calls, [], "the Vietnamese model must not answer an English listen")
+
+
 class WakeTest(ServerTestBase):
     async def asyncSetUp(self):
         await super().asyncSetUp()
@@ -387,8 +446,8 @@ class WakeTest(ServerTestBase):
     async def test_a_wake_is_used_by_one_listen_only(self):
         starts = []
         begin = self.server.begin_listen
-        self.server.begin_listen = lambda id_, from_index=None: (starts.append((id_, from_index)),
-                                                                 begin(id_, from_index))
+        self.server.begin_listen = lambda id_, from_index=None, stt=None: (starts.append((id_, from_index)),
+                                                                           begin(id_, from_index, stt))
         self.push(frame(9000), 12)
         self.hit()
         wake_at = self.server.ring.latest

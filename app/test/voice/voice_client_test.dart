@@ -24,6 +24,10 @@ void main() {
       expect((r.model, r.stt, r.wake), ('m', 'deepgram', 'sherpa-kws'));
       final old = VoiceEvent.decode('{"ev":"ready","model":"m"}') as VoiceReady;
       expect((old.stt, old.wake), ('', 'off'), reason: 'a service from before the fields');
+      expect(old.langs, ['vi'], reason: 'a service from before langs: Vietnamese only');
+      final both = VoiceEvent.decode('{"ev":"ready","model":"m","langs":["vi","en"]}') as VoiceReady;
+      expect(both.langs, ['vi', 'en']);
+      expect((VoiceEvent.decode('{"ev":"ready","model":"m","langs":[]}') as VoiceReady).langs, ['vi']);
       final f = VoiceEvent.decode('{"ev":"final","id":"l1","text":"x","engine":"deepgram"}') as VoiceFinal;
       expect(f.engine, 'deepgram');
       expect((VoiceEvent.decode('{"ev":"final","id":"l1","text":"x"}') as VoiceFinal).engine, '');
@@ -68,11 +72,14 @@ void main() {
       expect(client.ready, isTrue);
 
       client.listen('l1');
+      client.listen('l2', lang: 'en');
       client.finish();
       client.chime('soft');
       client.setWake(false);
       expect(await incoming.moveNext(), isTrue);
-      expect(jsonDecode(incoming.current), {'cmd': 'listen', 'id': 'l1'});
+      expect(jsonDecode(incoming.current), {'cmd': 'listen', 'id': 'l1', 'lang': 'vi'});
+      expect(await incoming.moveNext(), isTrue);
+      expect(jsonDecode(incoming.current), {'cmd': 'listen', 'id': 'l2', 'lang': 'en'});
       expect(await incoming.moveNext(), isTrue);
       expect(jsonDecode(incoming.current), {'cmd': 'finish'});
       expect(await incoming.moveNext(), isTrue);

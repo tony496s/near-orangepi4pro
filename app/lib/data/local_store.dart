@@ -13,6 +13,7 @@ class StoredState {
     this.timer,
     List<FocusSession>? sessions,
     this.lastRecapDay,
+    this.voiceLang = 'vi',
   })  : notes = notes ?? [],
         reminders = reminders ?? [],
         sessions = sessions ?? [];
@@ -25,6 +26,9 @@ class StoredState {
   /// "2026-11-16" once the automatic recap was shown that day.
   String? lastRecapDay;
 
+  /// The VI/EN switch: the language voice commands are spoken in.
+  String voiceLang;
+
   Map<String, Object?> toJson() => {
         'version': 1,
         'notes': [for (final n in notes) n.toJson()],
@@ -32,6 +36,7 @@ class StoredState {
         'timer': timer?.toJson(),
         'sessions': [for (final s in sessions) s.toJson()],
         'lastRecapDay': lastRecapDay,
+        'voiceLang': voiceLang,
       };
 
   static StoredState fromJson(Map<String, Object?> j) {
@@ -43,6 +48,7 @@ class StoredState {
       timer: j['timer'] == null ? null : ActiveTimer.fromJson((j['timer'] as Map).cast<String, Object?>()),
       sessions: list('sessions').map(FocusSession.fromJson).toList(),
       lastRecapDay: j['lastRecapDay'] as String?,
+      voiceLang: j['voiceLang'] == 'en' ? 'en' : 'vi',
     );
   }
 

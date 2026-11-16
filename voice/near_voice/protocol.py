@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional, Sequence, Union
 
 CHIMES = ("soft", "alert")
 
@@ -16,6 +16,8 @@ CHIMES = ("soft", "alert")
 @dataclass(frozen=True)
 class Listen:
     id: str
+    # The language to transcribe ("vi", "en"); None means the service's default. "ready" lists the ones it has.
+    lang: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -60,7 +62,10 @@ def decode_command(line: Union[str, bytes]) -> Optional[Command]:
         id_ = obj.get("id")
         if not isinstance(id_, str) or not id_:
             raise ProtocolError("listen needs a non-empty string id")
-        return Listen(id_)
+        lang = obj.get("lang")
+        if lang is not None and (not isinstance(lang, str) or not lang):
+            raise ProtocolError("listen lang must be a non-empty string")
+        return Listen(id_, lang)
     if cmd == "cancel":
         return Cancel()
     if cmd == "finish":
@@ -85,8 +90,9 @@ def encode_event(ev: str, **fields: object) -> bytes:
     return (json.dumps({"ev": ev, **fields}, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
 
 
-def ready(model: str, stt: str, tts: bool = False, wake: str = "off") -> bytes:
-    return encode_event("ready", model=model, stt=stt, tts=tts, wake=wake)
+def ready(model: str, stt: str, tts: bool = False, wake: str = "off", langs: Sequence[str] = ("vi",)) -> bytes:
+    """langs: the languages a "listen" may ask for, the default one first."""
+    return encode_event("ready", model=model, stt=stt, tts=tts, wake=wake, langs=list(langs))
 
 
 def listening(id_: str) -> bytes:

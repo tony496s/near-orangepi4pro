@@ -18,7 +18,11 @@ sealed class VoiceEvent {
     final id = j['id'] as String? ?? '';
     switch (j['ev']) {
       case 'ready':
-        return VoiceReady(j['model'] as String? ?? '', stt: j['stt'] as String? ?? '', wake: j['wake'] as String? ?? 'off');
+        final langs = j['langs'];
+        return VoiceReady(j['model'] as String? ?? '',
+            stt: j['stt'] as String? ?? '',
+            wake: j['wake'] as String? ?? 'off',
+            langs: langs is List && langs.isNotEmpty ? [for (final l in langs) '$l'] : const ['vi']);
       case 'listening':
         return VoiceListening(id);
       case 'level':
@@ -43,8 +47,12 @@ sealed class VoiceEvent {
 }
 
 final class VoiceReady extends VoiceEvent {
-  const VoiceReady(this.model, {this.stt = '', this.wake = 'off'});
+  const VoiceReady(this.model, {this.stt = '', this.wake = 'off', this.langs = const ['vi']});
   final String model;
+
+  /// Languages a listen may ask for, the default first: ["vi"], or ["vi", "en"] when English (cloud, through
+  /// Harness) is set up. An older service sends none: Vietnamese only.
+  final List<String> langs;
 
   /// Speech-to-text engine: "zipformer" (local) or "deepgram" (cloud first, local fallback).
   final String stt;
@@ -110,7 +118,8 @@ abstract interface class VoiceLink {
   /// Connected and the model is loaded.
   bool get ready;
 
-  void listen(String id);
+  /// Starts a listen in [lang] ("vi", or "en" when [VoiceReady.langs] has it).
+  void listen(String id, {String lang = 'vi'});
 
   void cancel();
 
@@ -206,7 +215,7 @@ class VoiceClient implements VoiceLink {
   }
 
   @override
-  void listen(String id) => _send({'cmd': 'listen', 'id': id});
+  void listen(String id, {String lang = 'vi'}) => _send({'cmd': 'listen', 'id': id, 'lang': lang});
 
   @override
   void cancel() => _send({'cmd': 'cancel'});

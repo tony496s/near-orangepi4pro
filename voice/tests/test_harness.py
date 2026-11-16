@@ -176,6 +176,16 @@ class HarnessSttTest(AuthTestBase):
                 with self.assertRaises(CloudSttError):
                     self.stt(FakePost(answer)).transcribe(b"\0\0")
 
+    def test_available_follows_the_sign_in_file(self):
+        stt = self.stt(FakePost())
+        self.assertTrue(stt.available())
+        os.remove(self.path)
+        self.assertFalse(stt.available())
+
+    def test_english_asks_for_en(self):
+        stt = HarnessStt(self.auth(FakePost()), API, "en", post=FakePost())
+        self.assertEqual((stt.url, stt.model), (API + "/api/voice/stt?lang=en", "harness-stt-en"))
+
     def test_an_empty_transcript_is_returned_as_empty(self):
         self.assertEqual(self.stt(FakePost(ok(transcript=""))).transcribe(b"\0\0"), "")
 
