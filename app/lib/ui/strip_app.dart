@@ -10,6 +10,7 @@ import 'screens/focus.dart';
 import 'screens/gold.dart';
 import 'screens/gold_alert.dart';
 import 'screens/month.dart';
+import 'screens/morning.dart';
 import 'screens/night.dart';
 import 'screens/recap.dart';
 import 'screens/tomorrow.dart';
@@ -95,6 +96,10 @@ class _Strip extends StatelessWidget {
         case Screen.home:
           screen = c.focusing ? FocusScreen(c: c) : AmbientScreen(c: c);
           key = c.focusing ? 'focus' : 'ambient';
+        case Screen.brief:
+          // Over the columns too, like the recap; home (the columns) comes back after it.
+          screen = MorningBriefScreen(c: c);
+          key = 'brief';
       }
     }
     final showMic = !night || c.peeking;

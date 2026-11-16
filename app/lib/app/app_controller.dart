@@ -17,10 +17,11 @@ import '../domain/gold_alert.dart';
 import '../domain/strip_layout.dart';
 import '../domain/timer_fit.dart';
 import '../voice/voice_client.dart';
+import 'morning_brief.dart';
 import 'scheduler.dart';
 
 /// Base screens. `home` shows the day strip, or the focus screen while a focus session runs.
-enum Screen { home, recap, tomorrow, gold, week, month, day }
+enum Screen { home, recap, tomorrow, gold, week, month, day, brief }
 
 /// A short confirmation or answer shown in the strip's right-hand block (or as a card during focus).
 class Flash {
@@ -360,6 +361,7 @@ class AppController extends ChangeNotifier {
       _handle(s, t);
     }
     _checkGold(t);
+    _checkMorningBrief(t);
     _notify();
   }
 
@@ -717,6 +719,7 @@ class AppController extends ChangeNotifier {
   void swipeUp() {
     _touch(now);
     if (screen == Screen.home || screen == Screen.recap) screen = Screen.tomorrow;
+    if (screen == Screen.brief) screen = Screen.home;
     _notify();
   }
 
@@ -876,6 +879,36 @@ class AppController extends ChangeNotifier {
     if (a == null || t.difference(a.at) < askFitTimeout) return;
     askFit = null;
     _show(_flash('HẸN GIỜ', 'Chưa hẹn ${timerLength(a.asked)}', meta: 'Không thấy trả lời · nói lại nếu vẫn cần'));
+  }
+
+
+  // ---------------------------------------------------------------- morning brief (demo 2, next morning)
+
+  /// Today's meetings and longest free stretch, and what is still open from earlier days.
+  MorningBrief get morningBrief =>
+      morningBriefOf(now: now, plan: plan, notes: _state.notes, reminders: _state.reminders);
+
+  /// Shows the morning brief by itself once a day: the first tick in the morning ([briefFrom]–[briefUntil]) with the
+  /// strip awake, i.e. when the night ends, at 06:00 if it is already awake, or at the first start of the day. It
+  /// waits while an alert, a focus session, a listen, a question or an answer is up or another screen is open, and is
+  /// only counted once shown: a busy morning does not skip it and a reboot does not show it twice.
+  void _checkMorningBrief(DateTime t) {
+    if (!morningBriefDue(t, _state.lastBriefDay)) return;
+    if (night || focusing || alert != null || listening != null || askTime != null || askFit != null || flash != null) {
+      return;
+    }
+    if (screen != Screen.home) return;
+    _state.lastBriefDay = dayKey(t);
+    screen = Screen.brief;
+    _lastInteraction = t; // leaves like the recap: after [idleReturn] untouched
+    _save();
+  }
+
+  /// A tap on the morning brief: back home (the columns or the day strip).
+  void dismissBrief() {
+    _touch(now);
+    if (screen == Screen.brief) screen = Screen.home;
+    _notify();
   }
 
   // ---------------------------------------------------------------- helpers

@@ -210,6 +210,8 @@ void main() {
 
   testWidgets('a tap on the gold column opens the chart; taps on the others do not', (tester) async {
     final c = await pump(tester, day.add(const Duration(hours: 9)));
+    expect(c.screen, Screen.brief, reason: 'a first start in the morning opens the morning brief');
+    c.dismissBrief();
     await tester.tap(find.byKey(const Key('column-touch-calendar')));
     await tester.tap(find.byKey(const Key('column-touch-timer')));
     await tester.pump();
