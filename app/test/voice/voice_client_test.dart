@@ -57,9 +57,12 @@ void main() {
       expect(client.ready, isTrue);
 
       client.listen('l1');
+      client.finish();
       client.chime('soft');
       expect(await incoming.moveNext(), isTrue);
       expect(jsonDecode(incoming.current), {'cmd': 'listen', 'id': 'l1'});
+      expect(await incoming.moveNext(), isTrue);
+      expect(jsonDecode(incoming.current), {'cmd': 'finish'});
       expect(await incoming.moveNext(), isTrue);
       expect(jsonDecode(incoming.current), {'cmd': 'chime', 'name': 'soft'});
 

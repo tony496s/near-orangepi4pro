@@ -24,11 +24,16 @@ class Cancel:
 
 
 @dataclass(frozen=True)
+class Finish:
+    """The user is done talking (tapped again): transcribe what was said so far."""
+
+
+@dataclass(frozen=True)
 class Chime:
     name: str
 
 
-Command = Union[Listen, Cancel, Chime]
+Command = Union[Listen, Cancel, Finish, Chime]
 
 
 class ProtocolError(ValueError):
@@ -51,6 +56,8 @@ def decode_command(line: Union[str, bytes]) -> Optional[Command]:
         return Listen(id_)
     if cmd == "cancel":
         return Cancel()
+    if cmd == "finish":
+        return Finish()
     if cmd == "chime":
         name = obj.get("name")
         if not isinstance(name, str):

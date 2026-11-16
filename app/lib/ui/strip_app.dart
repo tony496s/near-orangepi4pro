@@ -110,7 +110,7 @@ class _Strip extends StatelessWidget {
                 child: AnimatedOpacity(
                   opacity: c.listening == null ? 0 : 1,
                   duration: const Duration(milliseconds: 250),
-                  child: c.listening == null ? const SizedBox.shrink() : ListeningOverlay(listening: c.listening!, onTap: c.cancelTalk),
+                  child: c.listening == null ? const SizedBox.shrink() : ListeningOverlay(listening: c.listening!, onTap: c.tapOverlay),
                 ),
               ),
             ),

@@ -134,6 +134,24 @@ class SegmenterTest(unittest.TestCase):
         self.assertTrue(f.seg.done)
         self.assertIsNone(f.feed(True, 300))
 
+    def test_finish_cuts_now_when_speech_was_confirmed(self):
+        f = Feeder(Segmenter())
+        f.feed(False, 12)
+        f.feed(True, 20)  # frames 13-32
+        f.feed(False, 3)  # the user taps before the 0.6 s pause
+        result = f.seg.finish()
+        self.assertIsInstance(result, Utterance)
+        self.assertFalse(result.forced)
+        self.assertEqual(positions(result.pcm), (13 - LEAD, 35))
+        self.assertIsNone(f.seg.finish(), "the result is given once")
+        self.assertIsNone(f.feed(True))
+
+    def test_finish_without_speech_is_no_speech(self):
+        f = Feeder(Segmenter())
+        f.feed(False, 10)
+        f.feed(True, MIN_SPEECH - 1)  # too short to count
+        self.assertEqual(f.seg.finish(), NoSpeech(peak=10 + MIN_SPEECH - 1))
+
     def test_custom_config(self):
         seg = Segmenter(SegmenterConfig(min_speech_s=0.064, min_silence_s=0.064, no_speech_s=0.32, lead_s=0, tail_s=0))
         f = Feeder(seg)

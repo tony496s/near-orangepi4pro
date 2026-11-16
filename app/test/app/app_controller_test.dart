@@ -249,6 +249,53 @@ void main() {
       expect(c.listening!.phase, ListenPhase.unavailable);
     });
 
+    test('a tap while listening finishes: what was said is used', () async {
+      // On the board people tapped again to "send", and the tap used to cancel: the sentence was lost.
+      await make();
+      c.talk();
+      c.tapOverlay();
+      expect(voice.sent.last, 'finish');
+      expect(c.listening!.phase, ListenPhase.thinking);
+      voice.emit(const VoiceProcessing('l1'));
+      expect(c.listening!.phase, ListenPhase.thinking);
+      voice.emit(const VoiceFinal('l1', 'hẹn giờ 10 phút'));
+      expect(c.timer!.duration, const Duration(minutes: 10));
+    });
+
+    test('a tap to finish with nothing said closes quietly', () async {
+      await make();
+      c.talk();
+      c.tapOverlay();
+      voice.emit(const VoiceTimeout('l1'));
+      expect(c.listening, isNull);
+    });
+
+    test('a timeout without a tap still says nothing was heard', () async {
+      await make();
+      c.talk();
+      voice.emit(const VoiceTimeout('l1'));
+      expect(c.listening!.phase, ListenPhase.noSpeech);
+    });
+
+    test('finishing gives up if the service never answers', () async {
+      await make();
+      c.talk();
+      c.tapOverlay();
+      clock.advance(AppController.finishTimeout);
+      c.tick();
+      expect(c.listening, isNull);
+    });
+
+    test('a tap on a notice closes it without talking to the service', () async {
+      await make();
+      c.talk();
+      voice.emit(const VoiceTimeout('l1'));
+      final before = voice.sent.length;
+      c.tapOverlay();
+      expect(c.listening, isNull);
+      expect(voice.sent.length, before);
+    });
+
     test('a late transcript from an earlier request is ignored', () async {
       await make();
       c.talk();

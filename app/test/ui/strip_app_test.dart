@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:near_app/app/app_controller.dart';
 import 'package:near_app/data/calendar_source.dart';
+import 'package:near_app/voice/voice_client.dart';
 
 import '../support/fonts.dart';
 import '../support/strip.dart';
@@ -22,16 +23,20 @@ void main() {
     expect(find.text('Họp thiết kế'), findsOneWidget, reason: 'on the timeline');
   });
 
-  testWidgets('mic button and long press both start listening; a tap on the overlay cancels', (tester) async {
+  testWidgets('mic button and long press both start listening; a tap on the overlay finishes', (tester) async {
     final h = await StripHarness.pump(tester, at: at(9, 20));
     await tester.tap(find.byKey(const Key('mic')));
     await h.settle();
     expect(find.text('ĐANG NGHE'), findsOneWidget);
+    expect(find.text('Ngừng nói là tự gửi · chạm để gửi ngay'), findsOneWidget);
     expect(h.voice.sent.last, 'listen l1');
     await tester.tap(find.byKey(const Key('listening')));
     await h.settle();
-    expect(find.text('ĐANG NGHE'), findsNothing);
-    expect(h.voice.sent.last, 'cancel');
+    expect(h.voice.sent.last, 'finish');
+    expect(find.text('ĐANG HIỂU…'), findsOneWidget);
+    h.voice.emit(const VoiceTimeout('l1'));
+    await h.settle();
+    expect(find.text('ĐANG HIỂU…'), findsNothing, reason: 'nothing was said: the overlay just closes');
 
     await tester.longPressAt(const Offset(300, 190));
     await h.settle();

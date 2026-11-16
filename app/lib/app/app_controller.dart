@@ -106,6 +106,7 @@ class AppController extends ChangeNotifier {
   static const peekFor = Duration(seconds: 10);
   static const alertTimeout = Duration(minutes: 10);
   static const retrySaveAfter = Duration(seconds: 30);
+  static const finishTimeout = Duration(seconds: 10);
 
   StoredState _state = StoredState();
   DayPlan plan = DayPlan(const []);
@@ -384,20 +385,40 @@ class AppController extends ChangeNotifier {
     final v = voice;
     _heardTimer?.cancel();
     if (v == null || !v.ready) {
+      log('talk: voice not ready');
       listening = Listening(ListenPhase.unavailable, until: t.add(const Duration(seconds: 4)));
     } else {
       final id = 'l${++_listenSeq}';
+      log('talk: listen $id');
       listening = Listening(ListenPhase.listening, id: id);
       v.listen(id);
     }
     _notify();
   }
 
-  /// Tap on the listening overlay: stop listening, or close a notice.
+  /// Tap on the listening overlay. While listening it means "I'm done": what was said so far is used, and if nothing
+  /// was said the overlay just closes (people tap to stop, like a recorder). Otherwise it closes the notice.
+  void tapOverlay() {
+    final l = listening;
+    if (l == null) return;
+    if (l.phase != ListenPhase.listening) return cancelTalk();
+    final t = now;
+    _touch(t);
+    log('talk: finish ${l.id}');
+    voice?.finish();
+    // The answer is a final or a timeout within a second; the deadline only covers a service that never answers.
+    listening = l.copyWith(phase: ListenPhase.thinking, until: t.add(finishTimeout));
+    _notify();
+  }
+
+  /// Stops listening and drops whatever the service would still send, or closes a notice.
   void cancelTalk() {
     final l = listening;
     if (l == null) return;
-    if (l.phase == ListenPhase.listening || l.phase == ListenPhase.thinking) voice?.cancel();
+    if (l.phase == ListenPhase.listening || l.phase == ListenPhase.thinking) {
+      log('talk: cancel ${l.id}');
+      voice?.cancel();
+    }
     _heardTimer?.cancel();
     listening = null;
     _notify();
@@ -500,7 +521,11 @@ class AppController extends ChangeNotifier {
         }
       case VoiceTimeout(:final id):
         if (l == null || l.id != id) return;
-        listening = l.copyWith(phase: ListenPhase.noSpeech, until: t.add(const Duration(seconds: 4)));
+        log('voice: nothing heard for $id');
+        // After a tap to finish, nothing heard means the user changed their mind: just close.
+        listening = l.phase == ListenPhase.thinking
+            ? null
+            : l.copyWith(phase: ListenPhase.noSpeech, until: t.add(const Duration(seconds: 4)));
       case VoiceError(:final message):
         log('voice error: $message');
         if (l == null || (l.phase != ListenPhase.listening && l.phase != ListenPhase.thinking)) return;

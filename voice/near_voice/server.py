@@ -22,9 +22,9 @@ from .vad import Vad
 
 log = logging.getLogger("near_voice.server")
 
-# Peak below this for a whole no-speech wait means the mic gave (near) digital silence: report no_audio, not
-# no_speech. The board mic's noise gate idles around -74 dBFS (amplitude ~6), a quiet room is well above 64.
-NO_AUDIO_PEAK = 64
+# Peak below this for a whole no-speech wait means the mic gave digital silence: report no_audio, not no_speech.
+# The board mic's noise gate does not output zeros: a quiet office reads peak 24-47 (about -75 dBFS RMS).
+NO_AUDIO_PEAK = 8
 MAX_CLIENT_BUFFER = 1 << 20
 
 
@@ -122,6 +122,7 @@ class VoiceServer:
         self._awaiting = id_
         self._send(p.listening(id_))
         pre = self.ring.since(from_index) if from_index is not None else self.ring.last(self._preroll)
+        log.info("listen %s: start (%d frames before)", id_, len(pre))
         for f in pre:
             result = listen.seg.feed(f.pcm, self.vad.is_speech(f.pcm), live=False)
             if result is not None:
@@ -131,8 +132,21 @@ class VoiceServer:
 
     def cancel(self) -> None:
         """Stops listening and drops any pending result: the app has moved on."""
+        if self._listen is not None or self._awaiting is not None:
+            log.info("listen %s: cancelled", self._awaiting)
         self._stop_listen()
         self._awaiting = None
+
+    def finish(self) -> None:
+        """The user tapped to say they are done: transcribe what was said so far, or report no speech.
+        Ignored when not listening (already transcribing, or idle)."""
+        listen = self._listen
+        if listen is None:
+            return
+        log.info("listen %s: finished by the user after %d frames", listen.id, listen.seg.live_frames)
+        result = listen.seg.finish()
+        if result is not None:
+            self._end(listen, result)
 
     def handle_line(self, line: bytes, sender: Optional[asyncio.StreamWriter] = None) -> None:
         try:
@@ -147,6 +161,8 @@ class VoiceServer:
             self.begin_listen(cmd.id)
         elif isinstance(cmd, p.Cancel):
             self.cancel()
+        elif isinstance(cmd, p.Finish):
+            self.finish()
         elif isinstance(cmd, p.Chime):
             if self.chimes is not None:
                 self._spawn(self.chimes.play(cmd.name))

@@ -99,6 +99,17 @@ class Segmenter:
             return self._cut(forced=True)
         return None
 
+    def finish(self) -> Optional[Result]:
+        """The user says they are done: cut now if speech was confirmed, otherwise there was no speech.
+
+        None if the result was already given.
+        """
+        if self.result is not None:
+            return None
+        if self._speech_start is None:
+            return self._finish(NoSpeech(self._peak))
+        return self._cut(forced=False)
+
     def _cut(self, forced: bool) -> Result:
         assert self._speech_start is not None
         start = max(0, self._speech_start - self._lead)

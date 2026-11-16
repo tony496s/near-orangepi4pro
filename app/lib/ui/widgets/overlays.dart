@@ -5,7 +5,7 @@ import '../../domain/intent/parser.dart' show examples;
 import '../theme.dart';
 import 'buttons.dart';
 
-/// Covers the strip while listening and while showing what was heard. Tap to cancel or close.
+/// Covers the strip while listening and while showing what was heard. Tap to finish talking, or to close.
 class ListeningOverlay extends StatelessWidget {
   const ListeningOverlay({super.key, required this.listening, required this.onTap});
   final Listening listening;
@@ -30,7 +30,11 @@ class ListeningOverlay extends StatelessWidget {
       ListenPhase.noSpeech => 'Chạm nút mic rồi nói lại',
       ListenPhase.unavailable => 'Đang khởi động, trong lúc chờ vẫn dùng chạm được',
     };
-    final hint = l.phase == ListenPhase.notUnderstood ? 'Thử: ${examples.join(' · ')}' : '';
+    final hint = switch (l.phase) {
+      ListenPhase.listening => 'Ngừng nói là tự gửi · chạm để gửi ngay',
+      ListenPhase.notUnderstood => 'Thử: ${examples.join(' · ')}',
+      _ => '',
+    };
     return GestureDetector(
       key: const Key('listening'),
       behavior: HitTestBehavior.opaque,

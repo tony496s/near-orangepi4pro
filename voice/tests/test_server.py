@@ -165,6 +165,37 @@ class ListenTest(ServerTestBase):
         await self.client.expect("timeout", id="a1", reason="no_speech")
         self.assertEqual(self.stt.calls, [])
 
+    async def test_quiet_room_through_a_noise_gate_is_no_speech(self):
+        # The board mic idles at peak 24-47 in a quiet office: that is a working mic, not "no audio".
+        await self.listen("a1")
+        self.push(frame(47), 125)
+        await self.client.expect("timeout", id="a1", reason="no_speech")
+
+    async def test_finish_transcribes_what_was_said_so_far(self):
+        await self.listen("a1")
+        self.push(SILENCE, 5)
+        self.push(LOUD, 20)
+        self.push(SILENCE, 3)  # tapped before the pause that would end it
+        with self.assertLogs("near_voice.server", "INFO") as logs:
+            self.client.send({"cmd": "finish"})
+            await self.client.expect("processing", id="a1")
+            await self.client.expect("final", id="a1")
+        self.assertTrue(any("finished by the user" in m for m in logs.output))
+        self.assertEqual(len(self.stt.calls[0]), (5 + 20 + 3) * 1024)
+        self.push(LOUD, 30)  # nothing more is fed
+        await self.client.nothing_for(0.1)
+
+    async def test_finish_without_speech_times_out_at_once(self):
+        await self.listen("a1")
+        self.push(HISS, 10)
+        self.client.send({"cmd": "finish"})
+        await self.client.expect("timeout", id="a1", reason="no_speech")
+        self.assertEqual(self.stt.calls, [])
+
+    async def test_finish_when_not_listening_is_ignored(self):
+        self.client.send({"cmd": "finish"})
+        await self.listen("a1")
+
     async def test_digital_silence_is_no_audio(self):
         await self.listen("a1")
         self.push(SILENCE, 125)

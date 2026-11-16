@@ -25,6 +25,9 @@ class FakeVoice implements VoiceLink {
   void cancel() => sent.add('cancel');
 
   @override
+  void finish() => sent.add('finish');
+
+  @override
   void chime(String name) => sent.add('chime $name');
 
   void emit(VoiceEvent e) => _events.add(e);

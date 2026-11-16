@@ -25,5 +25,8 @@ Future<void> main() async {
     log: log,
   );
   await controller.start();
+  // Lets a shell on the board start listening without touching the screen (tests and measurements):
+  // kill -USR1 <flutter-pi pid>.
+  if (Platform.isLinux) ProcessSignal.sigusr1.watch().listen((_) => controller.talk());
   runApp(StripApp(controller: controller));
 }

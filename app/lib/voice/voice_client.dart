@@ -95,6 +95,10 @@ abstract interface class VoiceLink {
 
   void cancel();
 
+  /// The user is done talking: the service transcribes what was said so far ("final"), or answers "timeout" when
+  /// nothing was said.
+  void finish();
+
   /// Plays a short sound: "soft" or "alert".
   void chime(String name);
 }
@@ -184,6 +188,9 @@ class VoiceClient implements VoiceLink {
 
   @override
   void cancel() => _send({'cmd': 'cancel'});
+
+  @override
+  void finish() => _send({'cmd': 'finish'});
 
   @override
   void chime(String name) => _send({'cmd': 'chime', 'name': name});

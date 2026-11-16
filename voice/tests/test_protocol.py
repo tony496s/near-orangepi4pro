@@ -14,6 +14,9 @@ class DecodeCommandTest(unittest.TestCase):
     def test_cancel(self):
         self.assertEqual(p.decode_command('{"cmd":"cancel"}'), p.Cancel())
 
+    def test_finish(self):
+        self.assertEqual(p.decode_command('{"cmd":"finish"}'), p.Finish())
+
     def test_chime(self):
         self.assertEqual(p.decode_command('{"cmd":"chime","name":"soft"}'), p.Chime("soft"))
 
