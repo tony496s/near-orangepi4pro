@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:near_app/domain/calendar_diff.dart';
 import 'package:near_app/domain/models.dart';
 import 'package:near_app/ui/theme.dart';
 import 'package:near_app/ui/widgets/timeline.dart';
@@ -11,13 +12,13 @@ void main() {
   setUpAll(loadAppFonts);
   DateTime at(int h, [int m = 0]) => DateTime(2026, 11, 16, h, m);
 
-  Future<void> pump(WidgetTester tester, List<CalendarEvent> events) async {
+  Future<void> pump(WidgetTester tester, List<CalendarEvent> events, {List<MovedSlot> ghosts = const []}) async {
     tester.view.physicalSize = const Size(stripWidth, Timeline.height);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(Directionality(
       textDirection: TextDirection.ltr,
-      child: Align(alignment: Alignment.topLeft, child: Timeline(events: events, now: at(14, 41))),
+      child: Align(alignment: Alignment.topLeft, child: Timeline(events: events, now: at(14, 41), ghosts: ghosts)),
     ));
   }
 
@@ -75,5 +76,19 @@ void main() {
     ]);
     expect(find.text('Nộp báo giá'), findsNothing);
     expect(find.text('Gọi khách'), findsOneWidget);
+  });
+
+  testWidgets('a moved event: a dashed ghost at its old slot, and labels stop before the ghost', (tester) async {
+    await pump(
+      tester,
+      [ev('a', 'Họp nhanh với team', at(15), 15), ev('b', 'Tập trung sâu', at(17), 60, kind: EventKind.focus)],
+      ghosts: [MovedSlot('b', at(16), at(17), until: at(16))],
+    );
+    final ghost = tester.getRect(find.byKey(ValueKey('timeline-ghost-${Timeline.x(at(16)).round()}')));
+    expect(ghost.left, closeTo(boxLeft(at(16)), .5));
+    expect(ghost.width, closeTo(Timeline.pxPerHour - 3, .5));
+    expect(tester.getRect(find.text('Họp nhanh với team')).right, lessThan(ghost.left), reason: 'clear of the ghost');
+    expect(find.text('Tập trung sâu'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

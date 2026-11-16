@@ -2,12 +2,14 @@ import 'package:flutter/widgets.dart';
 
 import '../../app/presenter.dart';
 import '../../core/vi_format.dart';
+import '../../domain/calendar_diff.dart';
 import '../../domain/models.dart';
 import '../theme.dart';
+import 'timeline_ghost.dart';
 
 /// The day from 07:00 to 21:00 across the full width: hour marks, events, reminder pins and a "now" line.
 class Timeline extends StatelessWidget {
-  const Timeline({super.key, required this.events, this.now, this.pins = const [], this.highlightId});
+  const Timeline({super.key, required this.events, this.now, this.pins = const [], this.highlightId, this.ghosts = const []});
 
   static const startHour = 7;
   static const endHour = 21;
@@ -20,6 +22,9 @@ class Timeline extends StatelessWidget {
   final DateTime? now;
   final List<Pin> pins;
   final String? highlightId;
+
+  /// Old slots of moved events: a dashed outline under the events; the moved event is tinted teal.
+  final List<MovedSlot> ghosts;
 
   static double x(DateTime t) => ((t.hour + t.minute / 60 + t.second / 3600) - startHour) * pxPerHour;
 
@@ -77,7 +82,8 @@ class Timeline extends StatelessWidget {
               child: Text(two(h), textAlign: TextAlign.center, style: ts(13, weight: FontWeight.w500, color: Ink.faint, height: 1)),
             ),
           ],
-          for (final (i, e) in _shown.indexed) ..._event(e, n, i + 1 < _shown.length ? x(_shown[i + 1].start) : stripWidth),
+          for (final g in ghosts) TimelineGhost.at(x(g.start), x(g.end)),
+          for (final (i, e) in _shown.indexed) ..._event(e, n, _labelLimit(e, i)),
           for (final p in pins) _pin(p),
           if (nx != null) _nowLine(nx),
         ],
@@ -93,6 +99,7 @@ class Timeline extends StatelessWidget {
     if (x0 >= stripWidth || x0 + w <= 0) return const [];
     final past = n != null && !e.end.isAfter(n);
     final hi = e.id == highlightId;
+    final moved = !hi && ghosts.any((g) => g.eventId == e.id);
     final fits = _textWidth(e.title) <= w - 2 * _boxPadding;
     final narrow = w < 64 && !fits;
     final box = Positioned(
@@ -106,8 +113,8 @@ class Timeline extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: _boxPadding),
           alignment: Alignment.centerLeft,
           decoration: BoxDecoration(
-            color: hi ? const Color(0x4DFFB36B) : const Color(0x21F2EEE6),
-            border: Border.all(color: hi ? Ink.hot : const Color(0x33F2EEE6)),
+            color: hi ? const Color(0x4DFFB36B) : (moved ? TimelineGhost.movedFill : const Color(0x21F2EEE6)),
+            border: Border.all(color: hi ? Ink.hot : (moved ? Ink.cool : const Color(0x33F2EEE6))),
             borderRadius: BorderRadius.circular(8),
             boxShadow: hi ? const [BoxShadow(color: Color(0x80FFB36B), blurRadius: 28)] : null,
           ),
@@ -133,6 +140,16 @@ class Timeline extends StatelessWidget {
         ),
       ),
     ];
+  }
+
+  /// Where a label after the [i]th shown event must stop: the next event, or a ghost after it, whichever is first.
+  double _labelLimit(CalendarEvent e, int i) {
+    var limit = i + 1 < _shown.length ? x(_shown[i + 1].start) : stripWidth;
+    for (final g in ghosts) {
+      final gx = x(g.start);
+      if (g.start.isAfter(e.start) && gx < limit) limit = gx;
+    }
+    return limit;
   }
 
   Widget _pin(Pin p) {

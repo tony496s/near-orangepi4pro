@@ -5,9 +5,11 @@ import '../../app/presenter.dart';
 import '../../core/vi_format.dart';
 import '../theme.dart';
 import '../widgets/gold_mini.dart';
+import '../widgets/offline_note.dart';
 import '../widgets/pulse.dart';
 import '../widgets/sky.dart';
 import '../widgets/timeline.dart';
+import 'meeting_clock.dart';
 
 /// The day strip: big clock, date, what is next (or the latest answer), a running plain timer, the timeline. Once
 /// the gold chart was opened today, or while a price alert is armed ([AppController.goldMini]), a small gold tile
@@ -30,6 +32,19 @@ class AmbientScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A meeting going on takes the strip (the meeting clock), unless a plain timer needs the middle.
+    final m = c.meeting;
+    final t = c.timer;
+    final showMeeting = m != null && (t == null || t.focus);
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 500),
+      child: showMeeting
+          ? MeetingClockScreen(key: const ValueKey('meeting-clock'), c: c, m: m)
+          : KeyedSubtree(key: const ValueKey('day-strip'), child: _dayStrip()),
+    );
+  }
+
+  Widget _dayStrip() {
     final now = c.now;
     final valid = c.clockValid;
     final block = stripBlock(c);
@@ -52,7 +67,7 @@ class AmbientScreen extends StatelessWidget {
                 style: ts(17, weight: FontWeight.w500, color: Ink.dim, spacing: 17 * .16)),
           ),
           // The plain timer takes the middle: no room for the tile there too, so it waits until the timer ends.
-          if (c.goldMini && !plainTimer)
+          if (c.goldMini && !plainTimer && !c.offline)
             Positioned(
               key: const ValueKey('gold-mini-slot'),
               left: miniLeft,
@@ -60,6 +75,11 @@ class AmbientScreen extends StatelessWidget {
               width: miniWidth,
               child: GoldMini(c: c),
             ),
+          // Offline: the card takes the middle (the gold tile's prices need the network anyway); under a plain timer it
+          // shrinks to one line.
+          if (c.offline && !plainTimer)
+            Positioned(left: miniLeft, top: miniTop, width: miniWidth, child: OfflineCard(c: c)),
+          if (c.offline && plainTimer) Positioned(left: 470, top: 162, width: miniWidth, child: OfflineLine(c: c)),
           if (timer != null && !timer.focus)
             Positioned(
               left: 470,
@@ -89,7 +109,12 @@ class AmbientScreen extends StatelessWidget {
           Positioned(
             left: 0,
             top: 212,
-            child: Timeline(events: c.plan.on(now), now: valid ? now : null, pins: todayPins(c), highlightId: c.soonEventId),
+            child: Timeline(
+                events: c.plan.on(now),
+                now: valid ? now : null,
+                pins: todayPins(c),
+                highlightId: c.soonEventId,
+                ghosts: c.movedSlots),
           ),
         ],
       ),

@@ -7,7 +7,9 @@ import '../core/vi_format.dart';
 import '../data/calendar_source.dart';
 import '../data/fx_source.dart';
 import '../data/local_store.dart';
+import '../data/network_probe.dart';
 import '../data/price_source.dart';
+import '../domain/calendar_diff.dart';
 import '../domain/day_plan.dart';
 import '../domain/intent/commands.dart';
 import '../domain/intent/en_parser.dart';
@@ -19,6 +21,7 @@ import '../domain/tasks.dart';
 import '../domain/timer_fit.dart';
 import '../voice/voice_client.dart';
 import 'done_state.dart';
+import 'live_presenter.dart';
 import 'morning_brief.dart';
 import 'scheduler.dart';
 
@@ -108,6 +111,7 @@ class AppController extends ChangeNotifier {
     this.fxRates = const SampleFxSource(),
     this.heardHold = const Duration(milliseconds: 700),
     this.log = _print,
+    this.network,
   }) : _lastInteraction = clock.now();
 
   final Clock clock;
@@ -121,6 +125,9 @@ class AppController extends ChangeNotifier {
   /// How long the heard sentence stays on screen before the command runs.
   final Duration heardHold;
   final void Function(String) log;
+
+  /// Asked every [probeEvery] whether the network is up; null: never (only a failing calendar fetch counts).
+  final NetworkProbe? network;
 
   static void _print(String s) => debugPrint(s);
 
@@ -281,8 +288,12 @@ class AppController extends ChangeNotifier {
     tick();
   }
 
-  Future<void> refreshCalendar() async {
+  /// Fetches the calendar again. A call while a fetch is running joins it, so results never land out of order.
+  Future<void> refreshCalendar() => _fetching ??= _refreshCalendar().whenComplete(() => _fetching = null);
+
+  Future<void> _refreshCalendar() async {
     final day = dayOf(now);
+    _lastFetchTry = now;
     try {
       // The week view starts on Monday and the month view shows the whole month, so fetch from the earlier of the
       // two up to the later of next month and a week ahead.
@@ -292,10 +303,12 @@ class AppController extends ChangeNotifier {
       final nextMonth = DateTime(day.year, day.month + 1);
       final weekAhead = day.add(const Duration(days: 8));
       final to = nextMonth.isAfter(weekAhead) ? nextMonth : weekAhead;
-      plan = DayPlan(await calendar.fetch(from.isBefore(day) ? from : day.subtract(const Duration(days: 1)), to));
+      final events = await calendar.fetch(from.isBefore(day) ? from : day.subtract(const Duration(days: 1)), to);
+      _calendarFetched(events);
+      plan = DayPlan(events);
       _fetchedDay = day;
     } catch (e) {
-      log('calendar fetch failed: $e');
+      _calendarFailed(e);
     }
   }
 
@@ -364,6 +377,7 @@ class AppController extends ChangeNotifier {
       _handle(s, t);
     }
     _checkGold(t);
+    _tickLive(t);
     _checkMorningBrief(t);
     _notify();
   }
@@ -1071,6 +1085,123 @@ class AppController extends ChangeNotifier {
 
   static String _eventMeta(CalendarEvent e, DateTime t) =>
       [hhmm(e.start), 'còn ${durationVi(e.start.difference(t))}', if (e.details.isNotEmpty) e.details].join(' · ');
+
+  // ---------------------------------------------------------------- near6: live calendar, meeting clock, offline
+
+  /// The calendar is fetched again this often (and at the day change), sooner while fetches fail.
+  static const calendarEvery = Duration(minutes: 5);
+  static const calendarRetry = Duration(minutes: 1);
+
+  /// The network probe runs this often; after one failure it asks again sooner, and two in a row mean offline (one
+  /// lost packet does not flash "mất mạng").
+  static const probeEvery = Duration(seconds: 30);
+  static const probeRetry = Duration(seconds: 5);
+
+  /// How long "lịch vừa đổi" stays in the block, and the longest a moved event's old slot stays on the timeline (it
+  /// goes earlier, when the old start passes).
+  static const movedFlashFor = Duration(minutes: 2);
+  static const ghostFor = Duration(hours: 2);
+
+  Future<void>? _fetching;
+  DateTime? _lastFetchTry;
+  DateTime? _calendarFetchedAt;
+  int _liveFetches = 0;
+  bool _fetchFailing = false;
+  bool _probing = false;
+  DateTime? _lastProbe;
+  int _probeFailures = 0;
+  bool _netDown = false;
+  final List<MovedSlot> _moved = [];
+
+  /// When the calendar was last fetched; null if never.
+  DateTime? get calendarFetchedAt => _calendarFetchedAt;
+
+  /// No network (two failed probes in a row) or the calendar cannot be fetched: the strip says so and keeps the last
+  /// calendar. Timers and Vietnamese voice commands run on the board and keep working.
+  bool get offline => _netDown || _fetchFailing;
+
+  /// Old slots of today's events that moved, while they are worth showing (until the old start, at most [ghostFor]).
+  List<MovedSlot> get movedSlots {
+    final t = now;
+    return [for (final m in _moved) if (t.isBefore(m.until)) m];
+  }
+
+  /// The meeting going on, for the meeting clock (the day strip) and the calendar column.
+  MeetingClock? get meeting => meetingClockOf(this);
+
+  void _tickLive(DateTime t) {
+    final last = _lastFetchTry;
+    final every = _fetchFailing ? calendarRetry : calendarEvery;
+    if (_fetching == null && (last == null || t.isBefore(last) || t.difference(last) >= every)) {
+      unawaited(refreshCalendar().then((_) => _notify()));
+    }
+    final p = network;
+    final lp = _lastProbe;
+    final due = _probeFailures > 0 && !_netDown ? probeRetry : probeEvery;
+    if (p != null && !_probing && (lp == null || t.isBefore(lp) || t.difference(lp) >= due)) {
+      _probing = true;
+      _lastProbe = t;
+      unawaited(p.check().catchError((Object _) => false).then(_probed));
+    }
+  }
+
+  void _probed(bool up) {
+    _probing = false;
+    if (_disposed) return;
+    final was = offline;
+    if (up) {
+      _probeFailures = 0;
+      if (_netDown) {
+        _netDown = false;
+        log('network: back online');
+        unawaited(refreshCalendar().then((_) => _notify()));
+      }
+    } else if (++_probeFailures >= 2 && !_netDown) {
+      _netDown = true;
+      log('network: offline');
+    }
+    if (was != offline) _notify();
+  }
+
+  void _calendarFailed(Object e) {
+    if (!_fetchFailing) log('calendar fetch failed: $e');
+    _fetchFailing = true;
+  }
+
+  /// Diffs a new fetch against the plan of the last one (not on the first fetch after start), flashes the soonest
+  /// move that matters today and keeps the old slots as ghosts.
+  void _calendarFetched(List<CalendarEvent> events) {
+    final t = now;
+    if (_fetchFailing) log('calendar fetch ok again');
+    _fetchFailing = false;
+    _calendarFetchedAt = t;
+    if (_liveFetches++ == 0) return;
+    final moves = [
+      for (final m in movedEvents(plan.events, events))
+        if ((sameDay(m.after.start, t) && m.after.end.isAfter(t)) || (sameDay(m.before.start, t) && m.before.end.isAfter(t))) m,
+    ];
+    final ids = {for (final e in events) e.id: e};
+    // A moved event that is gone, or back in its old slot, has no ghost any more.
+    _moved.removeWhere((g) => ids[g.eventId] == null || ids[g.eventId]!.start == g.start);
+    if (moves.isEmpty) return;
+    for (final m in moves) {
+      log('calendar: ${m.after.title} moved ${hhmm(m.before.start)} → ${hhmm(m.after.start)}');
+      _announced.remove(m.after.id);
+      if (soonEventId == m.after.id) {
+        soonEventId = null;
+        _soonUntil = null;
+      }
+      _moved.removeWhere((g) => g.eventId == m.after.id);
+      final cap = t.add(ghostFor);
+      if (sameDay(m.before.start, t) && m.before.start.isAfter(t)) {
+        _moved.add(MovedSlot(m.after.id, m.before.start, m.before.end, until: m.before.start.isBefore(cap) ? m.before.start : cap));
+      }
+    }
+    if (focusing) return; // "không làm phiền": the ghost stays, no flash
+    final (eb, title, meta) = movedTexts(moves, t);
+    flash = Flash(eyebrow: eb, title: title, meta: meta, cool: true, until: t.add(movedFlashFor));
+    if (!night) voice?.chime('soft');
+  }
 
   void _save() {
     store.save(_state).then((_) {

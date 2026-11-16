@@ -12,6 +12,8 @@ class CalendarEvent {
     this.kind = EventKind.meeting,
     this.place,
     this.people,
+    this.organizer,
+    this.updatedAt,
   });
 
   final String id;
@@ -21,6 +23,12 @@ class CalendarEvent {
   final EventKind kind;
   final String? place;
   final int? people;
+
+  /// Who runs the event ("Minh"), for "Minh đổi lúc 13:04" when it moves; null when the source does not say.
+  final String? organizer;
+
+  /// When the event was last changed in the calendar; null when the source does not say.
+  final DateTime? updatedAt;
 
   Duration get length => end.difference(start);
 

@@ -63,3 +63,12 @@ Logs: `journalctl -u near-app -u near-voice -f`. App state: `~/.local/share/near
 ```
 python3 -m unittest discover -s deploy -p 'test_*.py'
 ```
+
+## Demo: the calendar changes, the network drops (scenario 6)
+
+- The sample 1:1 (14:30) moves to 14:00 by itself 20 minutes after the app starts (`NEAR_DEMO_MOVE_AFTER=<minutes>`
+  or `off` in the unit's environment). To show it on cue: `kill -USR2 $(pidof flutter-pi)` moves it now and fetches
+  the calendar at once: "LỊCH VỪA ĐỔI · 14:30 → 14:00", and the old slot stays dashed on the timeline until 14:30.
+  It only moves while 14:00 is still ahead; restart `near-app` to start over.
+- Take the board off Wi-Fi: within about 40 s the strip shows "MẤT MẠNG" with the time the calendar was last fetched.
+  Timers and Vietnamese voice commands keep working (speech to text runs on the board).

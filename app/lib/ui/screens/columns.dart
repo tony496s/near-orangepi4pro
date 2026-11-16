@@ -13,6 +13,7 @@ import '../theme.dart';
 import '../widgets/buttons.dart';
 import '../widgets/line_chart.dart';
 import 'fx_panel.dart';
+import '../widgets/offline_note.dart';
 import '../widgets/sky.dart';
 
 /// The split home screen (scenario 5 of near-demo.html): one panel per column of [AppController.layout], across
@@ -371,6 +372,8 @@ class CalendarPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final m = c.meeting;
+    if (m != null && c.flash == null) return _MeetingPanel(c: c);
     final now = c.now;
     final valid = c.clockValid;
     final block = stripBlock(c);
@@ -395,8 +398,44 @@ class CalendarPanel extends StatelessWidget {
           const SizedBox(height: 6),
           _Block(block),
           const Spacer(),
+          if (c.offline) OfflineLine(c: c, size: 13),
           if (later.isNotEmpty)
             Text('Sau đó: ${later.join(' · ')}', maxLines: 1, overflow: TextOverflow.ellipsis, style: metaStyle(15)),
+        ],
+      ),
+    );
+  }
+}
+
+/// The calendar column during a meeting: the time left as the big number (the clock goes small, top right), when it
+/// ends, the meeting, and what comes after.
+class _MeetingPanel extends StatelessWidget {
+  const _MeetingPanel({required this.c});
+  final AppController c;
+
+  @override
+  Widget build(BuildContext context) {
+    final m = c.meeting!;
+    return Padding(
+      padding: _pad,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(m.eyebrow, maxLines: 1, overflow: TextOverflow.ellipsis, style: eyebrow())),
+              Text(hhmm(c.now), key: const Key('columns-clock'), style: ts(17, weight: FontWeight.w500, color: Ink.dim)),
+            ],
+          ),
+          Text(m.countdown,
+              key: const Key('columns-meeting-countdown'), style: ts(84, weight: FontWeight.w300, spacing: -2, height: 1.05)),
+          Text(m.sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: eyebrow(color: Ink.dim)),
+          const SizedBox(height: 6),
+          Text(m.event.title,
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: ts(30, weight: FontWeight.w600, height: 1.15)),
+          const Spacer(),
+          if (c.offline) OfflineLine(c: c, size: 13),
+          Text(m.after, maxLines: 1, overflow: TextOverflow.ellipsis, style: metaStyle(15)),
         ],
       ),
     );
@@ -560,7 +599,10 @@ class CalendarRail extends StatelessWidget {
     final now = c.now;
     final next = c.plan.next(now);
     final first = next == null ? c.plan.firstTomorrow(now) : null;
-    final (label, title, until) = next != null
+    final m = c.meeting;
+    final (label, title, until) = m != null
+        ? ('ĐANG HỌP', m.event.title, 'còn ${m.countdown} · hết ${hhmm(m.event.end)}')
+        : next != null
         ? ('TIẾP THEO', '${next.title} · ${hhmm(next.start)}', 'còn ${durationVi(next.start.difference(now))}')
         : first != null
             ? ('NGÀY MAI', '${first.title} · ${hhmm(first.start)}', '')
