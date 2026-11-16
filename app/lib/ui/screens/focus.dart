@@ -66,7 +66,7 @@ class FocusScreen extends StatelessWidget {
                         children: [
                           Text('KHÔNG LÀM PHIỀN', style: eyebrow(color: Ink.cool)),
                           const SizedBox(height: 10),
-                          Text('Nhắc việc tạm ẩn tới ${hhmm(t.endsAt)}', textAlign: TextAlign.right, style: metaStyle(18)),
+                          Text(c.fitDndLine ?? 'Nhắc việc tạm ẩn tới ${hhmm(t.endsAt)}', textAlign: TextAlign.right, style: metaStyle(18)),
                         ],
                       ),
                     )

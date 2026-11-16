@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import '../app/app_controller.dart';
 import 'screens/alert.dart';
+import 'screens/ask_fit.dart';
 import 'screens/ambient.dart';
 import 'screens/columns.dart';
 import 'screens/focus.dart';
@@ -59,6 +60,10 @@ class _Strip extends StatelessWidget {
     if (fullAlert) {
       screen = alert is GoldCrossedAlert ? GoldAlertScreen(c: c, alert: alert) : AlertScreen(c: c, alert: alert);
       key = 'alert-${alert.shownAt.microsecondsSinceEpoch}';
+    } else if (c.askFit != null) {
+      // A timer that would run into a meeting asks first, on the whole strip (the columns too).
+      screen = AskFitScreen(c: c, ask: c.askFit!);
+      key = 'ask-fit';
     } else if (night) {
       screen = NightScreen(c: c);
       key = 'night';

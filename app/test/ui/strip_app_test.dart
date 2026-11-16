@@ -218,6 +218,35 @@ void main() {
     expect(find.text('05:00'), findsOneWidget, reason: '"Nghỉ 5 phút" runs in the timer column');
   });
 
+  testWidgets('demo 6 from the columns: a timer into a meeting asks on the whole strip; fitted focus, then a plain timer',
+      (tester) async {
+    final h = await StripHarness.pump(tester, at: at(10, 12), columns: true);
+    await h.say('hẹn giờ 25 phút để tập trung');
+    expect(find.byKey(const Key('ask-fit-screen')), findsOneWidget);
+    expect(find.byKey(const Key('column-gold')), findsNothing, reason: 'the question takes the whole strip');
+    await tester.tap(find.byKey(const Key('ask-fit-fit')));
+    await h.settle();
+    expect(find.text('KHÔNG LÀM PHIỀN'), findsOneWidget);
+    expect(find.text('15:00'), findsOneWidget);
+    expect(find.text('Hết giờ lúc 10:27, trước giờ họp 3 phút'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await h.say('dừng tập trung');
+    expect(find.byKey(const Key('column-gold')), findsOneWidget);
+    await h.say('hẹn giờ 25 phút');
+    await tester.tap(find.byKey(const Key('ask-fit-fit')));
+    await h.settle();
+    expect(find.byKey(const Key('column-timer')), findsOneWidget, reason: 'a plain timer runs in its column');
+    expect(find.byKey(const Key('column-gold')), findsOneWidget);
+    expect(h.c.timer!.duration, const Duration(minutes: 15));
+
+    await h.say('hẹn giờ 25 phút');
+    await h.run(AppController.askFitTimeout);
+    expect(find.byKey(const Key('ask-fit-screen')), findsNothing, reason: 'no answer: dropped');
+    expect(find.text('Chưa hẹn 25 phút'), findsOneWidget);
+    expect(h.c.timer!.duration, const Duration(minutes: 15), reason: 'the running timer is untouched');
+  });
+
   testWidgets('scenario 1: focus by voice, countdown, done alert, break', (tester) async {
     final h = await StripHarness.pump(tester, at: at(9, 20));
     await h.say('HẸN GIỜ HAI MƯƠI LĂM PHÚT ĐỂ TẬP TRUNG');

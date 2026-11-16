@@ -15,6 +15,7 @@ import '../domain/intent/parser.dart';
 import '../domain/models.dart';
 import '../domain/gold_alert.dart';
 import '../domain/strip_layout.dart';
+import '../domain/timer_fit.dart';
 import '../voice/voice_client.dart';
 import 'scheduler.dart';
 
@@ -337,6 +338,7 @@ class AppController extends ChangeNotifier {
     if (l != null && l.until != null && !t.isBefore(l.until!)) listening = null;
     if (screen != Screen.home && t.difference(_lastInteraction) >= idleReturn) screen = Screen.home;
     _alerts.removeWhere((a) => t.difference(a.shownAt) >= alertTimeout);
+    _expireAskFit(t);
     if (_saveFailedAt != null && t.difference(_saveFailedAt!) >= retrySaveAfter) _save();
     if (_fetchedDay != null && !sameDay(_fetchedDay!, t)) {
       _fetchedDay = dayOf(t);
@@ -446,6 +448,7 @@ class AppController extends ChangeNotifier {
   void run(Command c) {
     final t = now;
     _touch(t);
+    if (_askFitFirst(c, t)) return;
     switch (c) {
       case StartTimer(:final duration, :final focus):
         _endFocusEarly(t);
@@ -800,6 +803,79 @@ class AppController extends ChangeNotifier {
         listening = l.copyWith(phase: ListenPhase.unavailable, until: t.add(const Duration(seconds: 4)));
     }
     _notify();
+  }
+
+  // ---------------------------------------------------------------- ask before a timer that runs into a meeting (demo 6)
+
+  /// How long the question waits for a tap. Then it is dropped, no timer starts (the user may have walked away; a
+  /// timer they did not choose is worse than none), and a short flash says so.
+  static const askFitTimeout = Duration(seconds: 20);
+
+  /// The question on screen ("HẸN GIỜ 25 PHÚT?"), if any.
+  AskFit? askFit;
+
+  /// The timer started from "Hẹn N phút" and the meeting it ends before, for the focus screen's line.
+  ActiveTimer? _fitTimer;
+  CalendarEvent? _fitMeeting;
+
+  /// True while an answer starts its timer through [run], so it does not ask again.
+  bool _askFitAnswering = false;
+
+  /// "Hết giờ lúc 10:27, trước giờ họp 3 phút" while the timer started from the fit runs; null otherwise.
+  String? get fitDndLine {
+    final tm = _state.timer;
+    final m = _fitMeeting;
+    return tm != null && m != null && identical(tm, _fitTimer) ? fitLine(tm.endsAt, m) : null;
+  }
+
+  /// Runs first in [run]: a timer that would run into a meeting asks instead of starting (true: asked). Any command
+  /// drops a question still open.
+  bool _askFitFirst(Command cmd, DateTime t) {
+    askFit = null;
+    if (_askFitAnswering || cmd is! StartTimer || !clockValid) return false;
+    final m = meetingInTheWay(plan, t, cmd.duration);
+    if (m == null) return false;
+    askFit = AskFit(asked: cmd.duration, focus: cmd.focus, meeting: m, at: t, fit: fitBefore(m.start.difference(t)));
+    screen = Screen.home;
+    flash = null;
+    _notify();
+    return true;
+  }
+
+  /// A tap on the question: start the fitted length, the length asked for, or nothing. The kind (focus or not) stays.
+  void answerAskFit(AskFitAnswer answer) {
+    final a = askFit;
+    askFit = null;
+    _touch(now);
+    if (a == null) return _notify();
+    final length = switch (answer) {
+      AskFitAnswer.fit when a.canFit => a.fit,
+      AskFitAnswer.asked => a.asked,
+      _ => null,
+    };
+    if (length == null) return _notify();
+    _askFitAnswering = true;
+    try {
+      run(StartTimer(length, focus: a.focus));
+    } finally {
+      _askFitAnswering = false;
+    }
+    if (length != a.fit) return;
+    _fitTimer = _state.timer;
+    _fitMeeting = a.meeting;
+    final end = _state.timer!.endsAt;
+    if (!a.focus) {
+      flash = _flash('ĐÃ HẸN GIỜ', timerLength(length),
+          meta: 'Kết thúc lúc ${hhmm(end)} · trước giờ họp ${clockMinutes(end, a.meeting.start)} phút', cool: true);
+    }
+    _notify();
+  }
+
+  void _expireAskFit(DateTime t) {
+    final a = askFit;
+    if (a == null || t.difference(a.at) < askFitTimeout) return;
+    askFit = null;
+    _show(_flash('HẸN GIỜ', 'Chưa hẹn ${timerLength(a.asked)}', meta: 'Không thấy trả lời · nói lại nếu vẫn cần'));
   }
 
   // ---------------------------------------------------------------- helpers

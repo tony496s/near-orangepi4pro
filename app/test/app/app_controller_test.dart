@@ -4,6 +4,8 @@ import 'package:near_app/core/clock.dart';
 import 'package:near_app/data/local_store.dart';
 import 'package:near_app/domain/strip_layout.dart';
 import 'package:near_app/domain/intent/commands.dart';
+import 'package:near_app/domain/models.dart';
+import 'package:near_app/domain/timer_fit.dart';
 import 'package:near_app/voice/voice_client.dart';
 
 import '../support/fakes.dart';
@@ -610,6 +612,123 @@ void main() {
       await again.start(ticker: false);
       expect(again.voiceLang, 'en');
       again.dispose();
+    });
+  });
+
+  group('a timer that would run into a meeting asks first (demo 6)', () {
+    test('fit maths: floor((gap - 2) / 5) * 5, zero when under 5 minutes', () {
+      Duration m(int minutes, [int seconds = 0]) => Duration(minutes: minutes, seconds: seconds);
+      expect(fitBefore(m(18)), m(15));
+      expect(fitBefore(m(17)), m(15));
+      expect(fitBefore(m(16, 59)), m(10), reason: 'ends at least 2 minutes before');
+      expect(fitBefore(m(7)), m(5));
+      expect(fitBefore(m(6, 59)), Duration.zero);
+      expect(fitBefore(m(1)), Duration.zero);
+    });
+
+    test('10:12 "hẹn giờ 25 phút" with a meeting at 10:30: asks; "Hẹn 15 phút" ends 3 minutes before', () async {
+      await make(hour: 10, minute: 12);
+      say('hẹn giờ 25 phút');
+      expect(c.timer, isNull, reason: 'not started yet');
+      final a = c.askFit!;
+      expect((a.meeting.id, a.asked, a.fit, a.focus, a.canFit), ('design', const Duration(minutes: 25), const Duration(minutes: 15), false, true));
+      c.answerAskFit(AskFitAnswer.fit);
+      expect(c.askFit, isNull);
+      expect((c.timer!.duration, c.timer!.focus), (const Duration(minutes: 15), false));
+      expect(c.timer!.endsAt, day.add(const Duration(hours: 10, minutes: 27)));
+      expect(c.flash!.meta, 'Kết thúc lúc 10:27 · trước giờ họp 3 phút');
+    });
+
+    test('a focus session stays focus; the do-not-disturb line says when it ends before the meeting', () async {
+      await make(hour: 10, minute: 12);
+      say('hẹn giờ 25 phút để tập trung');
+      expect(c.askFit!.focus, isTrue);
+      expect(c.focusing, isFalse);
+      c.answerAskFit(AskFitAnswer.fit);
+      expect(c.focusing, isTrue);
+      expect(c.timer!.duration, const Duration(minutes: 15));
+      expect(c.fitDndLine, 'Hết giờ lúc 10:27, trước giờ họp 3 phút');
+      say('hẹn giờ 10 phút để tập trung');
+      expect(c.fitDndLine, isNull, reason: 'a new session is not the fitted one');
+    });
+
+    test('"Vẫn 25 phút" starts what was asked, without asking again', () async {
+      await make(hour: 10, minute: 12);
+      say('hẹn giờ 25 phút để tập trung');
+      c.answerAskFit(AskFitAnswer.asked);
+      expect(c.askFit, isNull);
+      expect((c.timer!.duration, c.timer!.focus), (const Duration(minutes: 25), true));
+      expect(c.fitDndLine, isNull);
+    });
+
+    test('no clash: the meeting starts after the end, or exactly at it', () async {
+      await make();
+      say('hẹn giờ 10 phút để tập trung');
+      expect((c.askFit, c.timer?.duration), (null, const Duration(minutes: 10)), reason: 'demo 1 at 09:20');
+      await make(hour: 10, minute: 5);
+      say('hẹn giờ 25 phút');
+      expect((c.askFit, c.timer?.duration), (null, const Duration(minutes: 25)), reason: 'ends 10:30 as the meeting starts');
+    });
+
+    test('a meeting already going on is not a clash', () async {
+      await make(hour: 10, minute: 40);
+      say('hẹn giờ 25 phút');
+      expect((c.askFit, c.timer?.duration), (null, const Duration(minutes: 25)));
+      await make(hour: 10, minute: 30);
+      say('hẹn giờ 25 phút');
+      expect(c.askFit, isNull, reason: 'starting right now counts as going on');
+    });
+
+    test('meals and focus blocks are not meetings', () async {
+      clock = clockAt(11, 50);
+      voice = FakeVoice();
+      c = AppController(
+        clock: clock,
+        store: tempStore(),
+        calendar: FixedCalendar([
+          ev('lunch', 'Ăn trưa', day.add(const Duration(hours: 12)), 60, kind: EventKind.meal),
+          ev('deep', 'Tập trung sâu', day.add(const Duration(hours: 12, minutes: 5)), 60, kind: EventKind.focus),
+        ]),
+        voice: voice,
+        heardHold: Duration.zero,
+        log: (_) {},
+      );
+      await c.start(ticker: false);
+      say('hẹn giờ 25 phút');
+      expect((c.askFit, c.timer?.duration), (null, const Duration(minutes: 25)));
+    });
+
+    test('under 5 minutes fit: only "Vẫn" and "Thôi"; "Thôi" starts nothing', () async {
+      await make(hour: 10, minute: 24);
+      say('hẹn giờ 25 phút');
+      expect((c.askFit!.fit, c.askFit!.canFit), (Duration.zero, false));
+      c.answerAskFit(AskFitAnswer.fit);
+      expect((c.askFit, c.timer), (null, null), reason: 'no fit to start');
+      say('hẹn giờ 25 phút');
+      c.answerAskFit(AskFitAnswer.cancel);
+      expect((c.askFit, c.timer), (null, null));
+    });
+
+    test('no answer in 20 seconds: dropped, nothing starts, a flash says so', () async {
+      await make(hour: 10, minute: 12);
+      say('hẹn giờ 25 phút');
+      run(const Duration(seconds: 19));
+      expect(c.askFit, isNotNull);
+      run(const Duration(seconds: 1));
+      expect(c.askFit, isNull);
+      expect(c.timer, isNull);
+      expect((c.flash!.eyebrow, c.flash!.title, c.flash!.cool), ('HẸN GIỜ', 'Chưa hẹn 25 phút', false));
+    });
+
+    test('another command drops the question', () async {
+      await make(hour: 10, minute: 12);
+      say('hẹn giờ 25 phút');
+      say('ghi lại mua sữa');
+      expect(c.askFit, isNull);
+      expect(c.timer, isNull);
+      say('hẹn giờ 25 phút');
+      say('hẹn giờ 15 phút');
+      expect((c.askFit, c.timer?.duration), (null, const Duration(minutes: 15)), reason: 'fits: starts at once');
     });
   });
 
