@@ -302,7 +302,7 @@ class AgentConsole extends ChangeNotifier {
         if (flag == Flags.shipped) _whyAt = now.add(whyAfterShip);
       case ShipStage(:final index):
         l.state = LaneState.shipping;
-        l.card = ShipCard(shipStages, index, version: shipVersion);
+        l.card = ShipCard(shipStages, index, version: shipVersion, places: shipPlaces);
         if (index > 0) l.addLog('✓ ${shipStages[index - 1]}');
         if (index == shipStages.length) voice.chime('soft');
       case Finish(:final summary, :final shippable):

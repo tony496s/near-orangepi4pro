@@ -14,7 +14,11 @@ abstract final class Flags {
   static const shipped = 'shipped';
 }
 
-const shipStages = ['CI build', 'Ký app', 'Upload', 'Apple xử lý'];
+const shipStages = ['Build iOS', 'Ký app', 'Upload', 'Apple xử lý'];
+
+/// Where each ship stage runs: the board (ARM Linux) cannot build or sign iOS, so the box hands those to the build
+/// server.
+final shipPlaces = [Machine.server.name, Machine.server.name, Machine.server.name, 'App Store Connect'];
 const shipVersion = '0.1.71';
 
 Duration _s(num seconds) => Duration(milliseconds: (seconds * 1000).round());
@@ -42,14 +46,15 @@ List<Lane> initialLanes(DateTime now) => [
         steps: nearAppScript(),
       ),
       Lane(
-        id: 'docs',
-        repo: 'harness-docs',
+        id: 'web',
+        repo: 'harness-web',
         engine: Engine.claude,
-        task: 'Viết lại hướng dẫn cài đặt trên Linux',
-        startedAt: now.subtract(_s(2 * 60 + 5)),
-        progress: .2,
-        log: const ['Read docs/install.md', 'Read scripts/install.sh'],
-        steps: docsScript(),
+        machine: Machine.macbook,
+        task: 'Sửa lỗi upload ảnh trên web',
+        startedAt: now.subtract(_s(3 * 60 + 40)),
+        progress: .3,
+        log: const ['Read src/upload/ImagePicker.tsx', r'$ npm test -- upload   7/9'],
+        steps: webScript(),
       ),
     ];
 
@@ -103,17 +108,19 @@ List<Step> nearAppScript() => [
       Finish('PR #127 · 42/42 ✓', after: _s(1.5)),
     ];
 
-List<Step> docsScript() => [
-      Say('Edit docs/install.md   +58 −31', after: _s(4), progress: .4),
-      Say('Read scripts/setup.sh', after: _s(4)),
-      Say(r'$ markdownlint docs   0 issues', command: true, after: _s(4), progress: .55),
+/// The agent on the MacBook: started there while the human was at the laptop.
+List<Step> webScript() => [
+      Say('Edit src/upload/ImagePicker.tsx   +21 −8', after: _s(3.5), progress: .4),
+      Say('Read src/upload/resize.ts', after: _s(3.5)),
+      Say(r'$ npm test -- upload   8/9', command: true, after: _s(3.5), progress: .5),
       const Wait(Flags.approved, idle: [
-        'Read docs/troubleshooting.md',
-        'Edit docs/install.md   +12 −4',
-        r'$ markdownlint docs   0 issues',
-        'Read scripts/install.sh',
-      ], every: Duration(seconds: 7)),
-      Say(r'$ gh pr create   PR #130', command: true, after: _s(5), progress: 1),
+        'Edit src/upload/resize.ts   +6 −2',
+        r'$ npm test -- upload   8/9',
+        'Read src/api/media.ts',
+        r'$ npm run lint   0 issues',
+      ], every: Duration(seconds: 6)),
+      Say(r'$ npm test -- upload   9/9 ✓', command: true, after: _s(3), progress: .9),
+      Say(r'$ gh pr create   PR #130', command: true, after: _s(3), progress: 1),
       Finish('PR #130 · chờ review', after: _s(1.5)),
     ];
 

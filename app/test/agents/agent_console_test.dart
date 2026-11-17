@@ -49,7 +49,7 @@ void main() {
   group('opening scene', () {
     test('three agents run in the box, nothing waits for the human', () {
       final r = Rig();
-      expect(r.console.lanes.map((l) => l.repo), ['harness-backend', 'near-app', 'harness-docs']);
+      expect(r.console.lanes.map((l) => l.repo), ['harness-backend', 'near-app', 'harness-web']);
       expect(r.console.lanes.every((l) => l.state == LaneState.running && l.card == null), isTrue);
       expect(r.console.running, 3);
       expect(r.console.autoApproved, AgentConsole.startAutoApproved);
