@@ -218,6 +218,8 @@ case $ACTION in
                 "(${SDK:-flutter on PATH}); NEAR_FLUTTER_ROOT=<sdk> picks another"
         fi
         say "building $REF with Flutter ${HAVE:-?}"
+        # A fresh clone has no .dart_tool and flutterpi_tool does not fetch packages; the tag's pubspec.lock is kept.
+        (cd "$ROOT/app" && PATH=${SDK:+$SDK/bin:}$PATH flutter pub get --enforce-lockfile)
         PATH=${SDK:+$SDK/bin:}$PATH "$BUILD"
         if [ ! -f "$BUNDLE/app.so" ]; then
             echo "near-demo: no bundle in $BUNDLE after the build" >&2

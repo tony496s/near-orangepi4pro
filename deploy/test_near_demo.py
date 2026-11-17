@@ -53,6 +53,8 @@ class NearDemoTest(unittest.TestCase):
         cls.rsync = executable(cls.bin / "rsync", log)
         cls.build = executable(cls.bin / "build", "\n".join([
             log, 'echo "dart=$(command -v dart)" >> "$FAKE/calls"', '[ -z "${FAKE_BUILD_FAILS:-}" ] || exit 1']))
+        executable(cls.bin / "flutter", "\n".join([
+            'echo "flutter $* in $(pwd)" >> "$FAKE/calls"', '[ -z "${FAKE_PUB_GET_FAILS:-}" ] || exit 1']))
         executable(cls.bin / "sudo", "\n".join([log, '[ "$1" = -n ] && shift', 'case $1 in systemctl) exec "$@" ;; esac']))
         executable(cls.bin / "journalctl", log + '\ncat "$FAKE/journal" 2>/dev/null; true')
         executable(cls.bin / "systemctl", "\n".join([
@@ -202,6 +204,20 @@ class NearDemoTest(unittest.TestCase):
         self.assertEqual(self.called("rsync") + self.restarts(), [])
         self.assertFalse((self.home / "near/mode.env").exists())
 
+    def test_fetches_the_locked_packages_in_the_app_before_building(self):
+        # Regression: flutterpi_tool does not run pub get, so a fresh clone failed on a missing package_config.json.
+        r = self.run_demo()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        calls = self.log()
+        pub_get = f"flutter pub get --enforce-lockfile in {DEPLOY.parent.resolve()}/app"
+        self.assertIn(pub_get, calls)
+        self.assertLess(calls.index(pub_get), calls.index("build "))
+
+    def test_failed_package_fetch_stops_before_the_build(self):
+        r = self.run_demo(FAKE_PUB_GET_FAILS=1)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.called("build") + self.called("rsync") + self.restarts(), [])
+
     def test_a_build_without_a_bundle_is_an_error(self):
         (self.bundle / "app.so").unlink()
         r = self.run_demo()
@@ -212,6 +228,7 @@ class NearDemoTest(unittest.TestCase):
     def flutter_sdk(self, name, version):
         root = self.tmp / name
         executable(root / "bin/dart", "true")  # never run: the fake build only looks it up
+        executable(root / "bin/flutter", f'echo "{name}/flutter $*" >> "$FAKE/calls"')
         (root / "bin/cache").mkdir(parents=True)
         (root / "bin/cache/flutter.version.json").write_text(f'{{\n  "frameworkVersion": "{version}",\n}}\n')
         return root
@@ -230,6 +247,7 @@ class NearDemoTest(unittest.TestCase):
         r = self.run_demo(PATH=f"{other}/bin:{self.own_bin}:{self.bin}:{os.environ['PATH']}")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn(f"dart={sdk}/bin/dart", self.log())
+        self.assertIn("brew-flutter/flutter pub get --enforce-lockfile", self.log())
         self.assertIn("with Flutter 3.47.9", r.stdout)
         self.assertNotIn("WARNING", r.stdout)
 
