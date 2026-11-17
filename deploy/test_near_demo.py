@@ -51,7 +51,8 @@ class NearDemoTest(unittest.TestCase):
             'cd "$FAKE_HOME" && HOME=$FAKE_HOME exec sh -c "$*"',
         ]))
         cls.rsync = executable(cls.bin / "rsync", log)
-        cls.build = executable(cls.bin / "build", log + '\n[ -z "${FAKE_BUILD_FAILS:-}" ] || exit 1')
+        cls.build = executable(cls.bin / "build", "\n".join([
+            log, 'echo "dart=$(command -v dart)" >> "$FAKE/calls"', '[ -z "${FAKE_BUILD_FAILS:-}" ] || exit 1']))
         executable(cls.bin / "sudo", "\n".join([log, '[ "$1" = -n ] && shift', 'case $1 in systemctl) exec "$@" ;; esac']))
         executable(cls.bin / "journalctl", log + '\ncat "$FAKE/journal" 2>/dev/null; true')
         executable(cls.bin / "systemctl", "\n".join([
@@ -94,7 +95,7 @@ class NearDemoTest(unittest.TestCase):
             "PATH": f"{self.own_bin}:{self.bin}:{os.environ['PATH']}", "FAKE": self.fake, "FAKE_HOME": self.home,
             "NEAR_SSH": self.ssh, "NEAR_RSYNC": self.rsync, "NEAR_BUILD": self.build,
             "NEAR_BUNDLE_DIR": self.bundle, "NEAR_CONFIG": self.tmp / "no-config", "NEAR_DEMO_WAIT_S": 2,
-            "NEAR_AUTOSTART_FLAG": self.autostart,
+            "NEAR_AUTOSTART_FLAG": self.autostart, "PUB_CACHE": self.tmp / "pub-cache",
         }
         base.update(env)
         return subprocess.run(["sh", str(SCRIPT), *args], env=clean_env(**base), capture_output=True, text=True,
@@ -207,6 +208,56 @@ class NearDemoTest(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("no bundle", r.stderr)
         self.assertEqual(self.called("rsync"), [])
+
+    def flutter_sdk(self, name, version):
+        root = self.tmp / name
+        executable(root / "bin/dart", "true")  # never run: the fake build only looks it up
+        (root / "bin/cache").mkdir(parents=True)
+        (root / "bin/cache/flutter.version.json").write_text(f'{{\n  "frameworkVersion": "{version}",\n}}\n')
+        return root
+
+    def activate_flutterpi_tool(self, sdk):
+        cfg = self.tmp / "pub-cache/global_packages/flutterpi_tool/.dart_tool/package_config.json"
+        cfg.parent.mkdir(parents=True)
+        cfg.write_text('{\n  "packages": [\n    {\n      "name": "flutter_tools",\n'
+                       f'      "rootUri": "file://{sdk}/packages/flutter_tools",\n    }}\n  ]\n}}\n')
+
+    def test_builds_with_the_flutter_sdk_flutterpi_tool_belongs_to(self):
+        # Regression: from a shell with another Flutter first on PATH, flutterpi_tool died with "Invalid SDK hash".
+        sdk = self.flutter_sdk("brew-flutter", "3.47.9")
+        self.activate_flutterpi_tool(sdk)
+        other = self.flutter_sdk("home-flutter", "3.47.2")
+        r = self.run_demo(PATH=f"{other}/bin:{self.own_bin}:{self.bin}:{os.environ['PATH']}")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"dart={sdk}/bin/dart", self.log())
+        self.assertIn("with Flutter 3.47.9", r.stdout)
+        self.assertNotIn("WARNING", r.stdout)
+
+    def test_another_flutter_version_builds_with_a_warning(self):
+        self.activate_flutterpi_tool(self.flutter_sdk("brew-flutter", "3.48.0"))
+        r = self.run_demo()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("WARNING: the demo was frozen with Flutter 3.47.9, this build uses 3.48.0", r.stdout)
+
+    def test_flutter_sdk_by_hand(self):
+        self.activate_flutterpi_tool(self.flutter_sdk("brew-flutter", "3.48.0"))
+        mine = self.flutter_sdk("mine", "3.47.9")
+        r = self.run_demo(NEAR_FLUTTER_ROOT=mine)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"dart={mine}/bin/dart", self.log())
+        self.assertNotIn("WARNING", r.stdout)
+
+    def test_a_missing_flutter_sdk_stops_before_the_build(self):
+        self.activate_flutterpi_tool(self.tmp / "gone")
+        r = self.run_demo()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(f"no Flutter SDK at {self.tmp}/gone", r.stderr)
+        self.assertEqual(self.called("build") + self.called("rsync"), [])
+
+    def test_without_flutterpi_tool_in_the_pub_cache_the_path_is_left_alone(self):
+        r = self.run_demo()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("WARNING: the demo was frozen with Flutter 3.47.9, this build uses an unknown one", r.stdout)
 
     # --- checking the restart
 

@@ -53,6 +53,7 @@ BUILD=${NEAR_BUILD:-$ROOT/deploy/build.sh}
 BUNDLE=${NEAR_BUNDLE_DIR:-$ROOT/app/build/flutter-pi/aarch64-generic}
 WAIT_S=${NEAR_DEMO_WAIT_S:-45}
 AUTOSTART=${NEAR_AUTOSTART_FLAG:-/etc/near/autostart}
+FLUTTER_VERSION=3.47.9  # the demo was built and checked on the board with it
 DROPIN=/etc/systemd/system/near-app.service.d/mode.conf
 LEGACY_DROPIN=/etc/systemd/system/near-app.service.d/agents.conf
 
@@ -61,6 +62,19 @@ case $REF in *[!A-Za-z0-9._/-]*) REF=unknown ;; esac  # it goes into a remote co
 case $WAIT_S in ''|*[!0-9]*) echo "NEAR_DEMO_WAIT_S must be a number of seconds" >&2; exit 2 ;; esac
 
 say() { echo "near-demo: $*"; }
+
+# The Flutter SDK for the build. flutterpi_tool runs on the first `dart` on PATH, which must be the one of the SDK it
+# was activated against ("Invalid SDK hash" otherwise), and that SDK is the one that builds. A shell where another
+# Flutter comes first (~/flutter) breaks the build, so this SDK's bin goes first. NEAR_FLUTTER_ROOT names one by hand.
+flutter_root() {
+    if [ -n "${NEAR_FLUTTER_ROOT:-}" ]; then
+        echo "$NEAR_FLUTTER_ROOT"
+        return
+    fi
+    cfg=${PUB_CACHE:-$HOME/.pub-cache}/global_packages/flutterpi_tool/.dart_tool/package_config.json
+    [ -f "$cfg" ] || return 0
+    sed -n 's|.*"rootUri": *"file://\(.*\)/packages/flutter_tools/*".*|\1|p' "$cfg" | head -n 1
+}
 
 # board <action>: runs the board-side script below (probe, up or off) over ssh.
 board() {
@@ -192,8 +206,19 @@ case $ACTION in
         ;;
     up)
         on_board probe
-        say "building $REF"
-        "$BUILD"
+        SDK=$(flutter_root)
+        if [ -n "$SDK" ] && [ ! -x "$SDK/bin/dart" ]; then
+            echo "near-demo: no Flutter SDK at $SDK (NEAR_FLUTTER_ROOT, or the one flutterpi_tool was activated with)" >&2
+            exit 1
+        fi
+        HAVE=$(sed -n 's/.*"frameworkVersion": *"\([^"]*\)".*/\1/p' "$SDK/bin/cache/flutter.version.json" 2>/dev/null \
+            || true)
+        if [ "$HAVE" != "$FLUTTER_VERSION" ]; then
+            say "WARNING: the demo was frozen with Flutter $FLUTTER_VERSION, this build uses ${HAVE:-an unknown one}" \
+                "(${SDK:-flutter on PATH}); NEAR_FLUTTER_ROOT=<sdk> picks another"
+        fi
+        say "building $REF with Flutter ${HAVE:-?}"
+        PATH=${SDK:+$SDK/bin:}$PATH "$BUILD"
         if [ ! -f "$BUNDLE/app.so" ]; then
             echo "near-demo: no bundle in $BUNDLE after the build" >&2
             exit 1
