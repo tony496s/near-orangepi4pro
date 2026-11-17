@@ -5,7 +5,7 @@ library;
 /// Where an agent runs. The box is Near itself; the others are machines it drives through Harness, like the dial and
 /// the phone do.
 enum Machine {
-  box('Hộp Near', 'TRONG HỘP'),
+  box('This machine', 'TRONG HỘP'),
   macbook('MacBook', 'TRÊN MACBOOK'),
   server('Server build', 'TRÊN SERVER');
 

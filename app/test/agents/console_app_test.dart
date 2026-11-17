@@ -97,6 +97,8 @@ void main() {
     for (final m in Machine.values) {
       h.expectWhole(m.name);
     }
+    // The box itself is the first machine on the rail, named from the presenter's side of the desk.
+    h.expectWhole('This machine');
     h.expectWhole('2 agent · luôn bật');
     h.expectWhole('1 agent · đang mở');
     h.expectWhole('rảnh');

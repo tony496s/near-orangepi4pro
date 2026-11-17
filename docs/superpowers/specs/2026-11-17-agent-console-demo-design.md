@@ -37,17 +37,17 @@ Câu chốt: *điều khiển cả đội agent, ở máy nào cũng được, m
 ## 3. Màn hình (1480×320)
 
 ```
-┌─────────────┬──────────────┬──────────────┬──────────────┬─────────────────────────────┬────────┐
-│ NEAR        │ TRONG HỘP    │ TRONG HỘP    │ TRÊN MACBOOK │ TRONG HỘP         (làn mới) │  (mic) │
-│ 4 agent     │ ● harness-   │ ● near-app   │ ● harness-web│ ● harness-mobile            │ Giao   │
-│ ● Hộp Near  │   backend    │   Codex      │ task         │   khi cần người: làn nở ra  │ việc   │
-│ ● MacBook   │ log chạy…    │ log chạy…    │ log chạy…    │   thành thẻ hỏi / thẻ đỏ /  │        │
-│ ● Server    │ ▬▬▬▬ 6:22    │ ▬▬▬▬ 11:50   │ ▬▬▬ 3:40     │   thẻ duyệt / chuyển / ship │  VI    │
-└─────────────┴──────────────┴──────────────┴──────────────┴─────────────────────────────┴────────┘
+┌───────────────┬──────────────┬──────────────┬──────────────┬─────────────────────────────┬────────┐
+│ NEAR          │ TRONG HỘP    │ TRONG HỘP    │ TRÊN MACBOOK │ TRONG HỘP         (làn mới) │  (mic) │
+│ 4 agent       │ ● harness-   │ ● near-app   │ ● harness-web│ ● harness-mobile            │ Giao   │
+│ ● This machine│   backend    │   Codex      │ task         │   khi cần người: làn nở ra  │ việc   │
+│ ● MacBook     │ log chạy…    │ log chạy…    │ log chạy…    │   thành thẻ hỏi / thẻ đỏ /  │        │
+│ ● Server      │ ▬▬▬▬ 6:22    │ ▬▬▬▬ 11:50   │ ▬▬▬ 3:40     │   thẻ duyệt / chuyển / ship │  VI    │
+└───────────────┴──────────────┴──────────────┴──────────────┴─────────────────────────────┴────────┘
 ```
 
-- **Thanh trái:** tổng số agent và **danh sách máy**: Hộp Near (luôn bật), MacBook (đang mở / đã ngủ), Server build (rảnh /
-  đang build), mỗi máy kèm số agent. Dòng MacBook bấm được: chạm để cho Mac ngủ hoặc thức.
+- **Thanh trái:** tổng số agent và **danh sách máy**: This machine (chính hộp Near, luôn bật), MacBook (đang mở / đã
+  ngủ), Server build (rảnh / đang build), mỗi máy kèm số agent. Dòng MacBook bấm được: chạm để cho Mac ngủ hoặc thức.
 - **Mỗi cột là một agent** chạy song song: máy nó đang chạy (TRONG HỘP / TRÊN MACBOOK / TRÊN SERVER), repo, engine
   (Claude/Codex), việc, log 6–8 dòng cuối (lệnh bằng font mono), thanh tiến độ, trạng thái, thời gian chạy. Tối đa 5 cột.
 - **Cột nào cần người thì nở rộng** (560–700 px), các cột khác co lại. Năm loại thẻ:
