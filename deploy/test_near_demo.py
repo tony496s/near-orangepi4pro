@@ -55,7 +55,8 @@ class NearDemoTest(unittest.TestCase):
             log, 'echo "dart=$(command -v dart)" >> "$FAKE/calls"', '[ -z "${FAKE_BUILD_FAILS:-}" ] || exit 1']))
         executable(cls.bin / "flutter", "\n".join([
             'echo "flutter $* in $(pwd)" >> "$FAKE/calls"', '[ -z "${FAKE_PUB_GET_FAILS:-}" ] || exit 1']))
-        executable(cls.bin / "sudo", "\n".join([log, '[ "$1" = -n ] && shift', 'case $1 in systemctl) exec "$@" ;; esac']))
+        executable(cls.bin / "sudo", "\n".join([
+            log, '[ "$1" = -n ] && shift', 'case $1 in systemctl) exec "$@" ;; esac']))
         executable(cls.bin / "journalctl", log + '\ncat "$FAKE/journal" 2>/dev/null; true')
         executable(cls.bin / "systemctl", "\n".join([
             log,
@@ -314,7 +315,8 @@ class NearDemoTest(unittest.TestCase):
         self.assertEqual(len(self.restarts()), 2)
 
     def test_restart_needing_a_password_fails_clearly(self):
-        executable(self.own_bin / "sudo", 'echo "sudo $*" >> "$FAKE/calls"; echo "sudo: a password is required" >&2; exit 1')
+        executable(self.own_bin / "sudo",
+                   'echo "sudo $*" >> "$FAKE/calls"; echo "sudo: a password is required" >&2; exit 1')
         r = self.run_demo()
         self.assertEqual(r.returncode, 6)
         self.assertIn("without a password", r.stderr)
@@ -441,7 +443,8 @@ class LauncherTest(unittest.TestCase):
         self.origin.mkdir()
         git(self.origin, "init", "-q", "-b", "main")
         executable(self.origin / "deploy/near-demo.sh",
-                   'cd "$(dirname "$0")/.."; echo "demo $(git rev-parse HEAD) args:$*"; ls app/lib/agents 2>/dev/null || echo no agents')
+                   'cd "$(dirname "$0")/.."; echo "demo $(git rev-parse HEAD) args:$*"\n'
+                   'ls app/lib/agents 2>/dev/null || echo no agents')
         (self.origin / "app/lib/agents").mkdir(parents=True)
         (self.origin / "app/lib/agents/console.dart").write_text("v1\n")
         (self.origin / ".gitignore").write_text("build/\n")
@@ -480,12 +483,12 @@ class LauncherTest(unittest.TestCase):
         (self.src / "app/lib/agents/console.dart").write_text("edited\n")
         (self.src / "stray.txt").write_text("x")
         (self.src / "build").mkdir()
-        (self.src / "build/cache").write_text("kept")
+        (self.src / "build/cache").write_text("stale")
         r = self.launch()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual((self.src / "app/lib/agents/console.dart").read_text(), "v1\n")
         self.assertFalse((self.src / "stray.txt").exists())
-        self.assertEqual((self.src / "build/cache").read_text(), "kept", "ignored build output stays for speed")
+        self.assertFalse((self.src / "build").exists(), "old build output goes too: the build starts clean")
 
     def test_follows_a_tag_that_was_moved(self):
         self.launch()

@@ -33,7 +33,7 @@ if ! g fetch -q --depth=1 --force --no-tags origin "+refs/tags/$TAG:refs/tags/$T
         exit 1
     fi
 fi
-# Forced every run: edits and stray files in the clone go; ignored build output stays so rebuilds are quick.
+# Forced every run, build output included (a clean build takes about 10 s), so nothing but the tag goes into the build.
 g -c advice.detachedHead=false checkout -q --force --detach "refs/tags/$TAG^{commit}"
-g clean -q -ffd
+g clean -q -ffdx
 exec "$SRC/deploy/near-demo.sh" "$@"

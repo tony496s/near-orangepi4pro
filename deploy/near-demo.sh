@@ -208,7 +208,8 @@ case $ACTION in
         on_board probe
         SDK=$(flutter_root)
         if [ -n "$SDK" ] && [ ! -x "$SDK/bin/dart" ]; then
-            echo "near-demo: no Flutter SDK at $SDK (NEAR_FLUTTER_ROOT, or the one flutterpi_tool was activated with)" >&2
+            echo "near-demo: no Flutter SDK at $SDK (NEAR_FLUTTER_ROOT, or the one flutterpi_tool was" \
+                "activated with)" >&2
             exit 1
         fi
         HAVE=$(sed -n 's/.*"frameworkVersion": *"\([^"]*\)".*/\1/p' "$SDK/bin/cache/flutter.version.json" 2>/dev/null \
@@ -218,9 +219,14 @@ case $ACTION in
                 "(${SDK:-flutter on PATH}); NEAR_FLUTTER_ROOT=<sdk> picks another"
         fi
         say "building $REF with Flutter ${HAVE:-?}"
-        # A fresh clone has no .dart_tool and flutterpi_tool does not fetch packages; the tag's pubspec.lock is kept.
-        (cd "$ROOT/app" && PATH=${SDK:+$SDK/bin:}$PATH flutter pub get --enforce-lockfile)
-        PATH=${SDK:+$SDK/bin:}$PATH "$BUILD"
+        (
+            PATH=${SDK:+$SDK/bin:}$PATH
+            export PATH
+            # A fresh clone has no .dart_tool and flutterpi_tool does not fetch packages; the tag's pubspec.lock holds.
+            cd "$ROOT/app"
+            flutter pub get --enforce-lockfile
+            "$BUILD"
+        )
         if [ ! -f "$BUNDLE/app.so" ]; then
             echo "near-demo: no bundle in $BUNDLE after the build" >&2
             exit 1

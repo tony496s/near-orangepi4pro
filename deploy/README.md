@@ -89,11 +89,13 @@ near-demo                 # build the tag, copy it to ~/near/app-agents, switch 
 near-demo --off           # back to the normal app (~/near/app), no build
 ```
 
-It builds in its own clone of the tag (`~/.cache/near-demo/src`, forced back to the tag on every run), so it gives the
-same demo whatever happens on the branches, `app/lib/agents` deleted included. It stops before building when the board
-is unreachable or not set up, and fails unless `near-app` is active and healthy about 20 s after the restart (then it
-prints the journal). The demo starts in manual mode; a double tap on the left rail turns autoplay on. `near-voice` is
-the board's own, not part of the tag.
+It builds in its own clone of the tag (`~/.cache/near-demo/src`, forced back to the tag and cleaned on every run, about
+40 s in all), so it gives the same demo whatever happens on the branches, `app/lib/agents` deleted included. It stops
+before building when the board is unreachable or not set up, and fails unless `near-app` is active and healthy about
+20 s after the restart (then it prints the journal). It builds with the Flutter SDK that `flutterpi_tool` was activated
+against, whatever Flutter comes first on PATH, and warns if that is not 3.47.9, the version the demo was checked with
+(`NEAR_FLUTTER_ROOT=<sdk>` picks another). The demo starts in manual mode; a double tap on the left rail turns autoplay
+on. `near-voice` is the board's own, not part of the tag.
 
 - Once per Mac: `install -m 755 deploy/near-demo-launcher.sh ~/.local/bin/near-demo` (any checkout of the tag).
 - Once per board set up before this: `near-demo --setup-board` asks for the board's sudo password and installs
