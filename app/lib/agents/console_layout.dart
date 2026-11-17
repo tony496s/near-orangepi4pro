@@ -15,6 +15,7 @@ double? wantedWidth(AgentCard? card) => switch (card) {
       DangerCard() => 640,
       ReviewCard() => 700,
       ShipCard() => 580,
+      HandoffCard() => 560,
     };
 
 /// Width of each lane in [total]: lanes with a card get what they ask for, the others share the rest equally. When

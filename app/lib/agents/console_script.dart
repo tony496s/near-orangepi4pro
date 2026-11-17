@@ -156,6 +156,12 @@ Ask _review() => Ask(
       after: _s(1.5),
     );
 
+/// What an agent does after it moves from the sleeping MacBook into the box (TODO(logic): fit it to the lane).
+List<Step> moveIntoBox() => [
+      Say('Chuyển vào hộp: kéo nhánh và phiên làm việc từ MacBook', after: _s(.4)),
+      Say('Tiếp tục trong hộp', after: _s(1.2)),
+    ];
+
 /// Steps of a ship to TestFlight, appended to a shippable lane.
 List<Step> shipScript() => [
       for (var i = 0; i <= shipStages.length; i++)

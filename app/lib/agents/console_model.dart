@@ -1,6 +1,22 @@
-/// Data of the agent console demo: lanes (one per agent running in the box), the cards an agent shows when it needs
-/// the human, and the script steps that drive each lane.
+/// Data of the agent console demo: lanes (one per agent, in the box or on another machine), the cards an agent shows
+/// when it needs the human, and the script steps that drive each lane.
 library;
+
+/// Where an agent runs. The box is Near itself; the others are machines it drives through Harness, like the dial and
+/// the phone do.
+enum Machine {
+  box('Hộp Near', 'TRONG HỘP'),
+  macbook('MacBook', 'TRÊN MACBOOK'),
+  server('Server build', 'TRÊN SERVER');
+
+  const Machine(this.name, this.tag);
+
+  /// Name on the rail's machine list.
+  final String name;
+
+  /// Small upper-case label on a lane.
+  final String tag;
+}
 
 enum Engine {
   claude('Claude'),
@@ -17,6 +33,10 @@ enum LaneState {
   review('Chờ duyệt kết quả'),
   ready('Sẵn sàng ship'),
   shipping('Đang ship'),
+
+  /// Its machine (the MacBook) went to sleep: the agent stops where it was until it moves into the box or the
+  /// machine wakes.
+  paused('Tạm dừng · Mac đã ngủ'),
   done('Xong');
 
   const LaneState(this.label);
@@ -61,14 +81,29 @@ final class ReviewCard extends AgentCard {
   static const redo = 1;
 }
 
-/// A build on its way to testers: [current] is the stage in progress, [stages].length when all are done.
+/// A build on its way to testers: [current] is the stage in progress, [stages].length when all are done. [places]
+/// (same length as [stages], or empty) says where each stage runs, e.g. the iOS build on the build server because the
+/// board (ARM Linux) cannot build iOS.
 final class ShipCard extends AgentCard {
-  const ShipCard(this.stages, this.current, {required this.version});
+  const ShipCard(this.stages, this.current, {required this.version, this.places = const []});
   final List<String> stages;
   final int current;
   final String version;
+  final List<String> places;
 
   bool get done => current >= stages.length;
+
+  String placeOf(int stage) => stage >= 0 && stage < places.length ? places[stage] : '';
+}
+
+/// The machine an agent runs on went to sleep with the agent half way. Choice 0 moves the agent (branch and session)
+/// into the box, where it carries on; 1 leaves it paused until the machine wakes.
+final class HandoffCard extends AgentCard {
+  const HandoffCard(this.from);
+  final Machine from;
+
+  static const move = 0;
+  static const stay = 1;
 }
 
 /// One step of a lane's script, applied [after] the previous one.
@@ -103,6 +138,12 @@ final class Wait extends Step {
   final Duration every;
 }
 
+/// Moves the lane to [machine] (after a handoff).
+final class MoveTo extends Step {
+  const MoveTo(this.machine, {Duration after = Duration.zero}) : super(after);
+  final Machine machine;
+}
+
 /// Raises [flag] for the lanes that wait on it.
 final class Raise extends Step {
   const Raise(this.flag, {Duration after = Duration.zero}) : super(after);
@@ -130,6 +171,7 @@ class Lane {
     required this.task,
     required this.startedAt,
     required List<Step> steps,
+    this.machine = Machine.box,
     this.voiceGiven = false,
     this.progress = 0,
     List<String> log = const [],
@@ -140,6 +182,9 @@ class Lane {
   final String repo;
   final Engine engine;
   final String task;
+
+  /// Where the agent runs; changes when it moves into the box.
+  Machine machine;
 
   /// The task was given by voice on the box (the lane shows a mic mark).
   final bool voiceGiven;

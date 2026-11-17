@@ -38,6 +38,7 @@ Color stateColor(LaneState s) => switch (s) {
       LaneState.asking || LaneState.review || LaneState.shipping => Ink.hot,
       LaneState.blocked => Tone.danger,
       LaneState.ready => Ink.cool,
+      LaneState.paused => Ink.faint,
       LaneState.done => Ink.dim,
     };
 
@@ -214,6 +215,7 @@ class LaneView extends StatelessWidget {
         DangerCard() => 500,
         ReviewCard() => 600,
         ShipCard() => 480,
+        HandoffCard() => 470,
       };
 
   Widget _plain(double w) {
@@ -303,6 +305,7 @@ class LaneView extends StatelessWidget {
               DangerCard() => DangerView(card: card, onPick: (i) => c.resolve(lane, i)),
               ReviewCard() => ReviewView(card: card, beat: c.beat, onPick: (i) => c.resolve(lane, i)),
               ShipCard() => ShipView(card: card, beat: c.beat),
+              HandoffCard() => const SizedBox(), // TODO(ui): HandoffView
             },
           ),
         ],

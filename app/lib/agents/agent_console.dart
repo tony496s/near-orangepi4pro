@@ -82,8 +82,66 @@ class AgentConsole extends ChangeNotifier {
 
   int get running => lanes.where((l) => l.state != LaneState.done).length;
 
+  /// The MacBook is asleep: the presenter closed its lid and tapped it on the rail (the board cannot see the lid).
+  bool macAsleep = false;
+
+  /// The lane's machine is asleep, so its agent does not move on.
+  bool isPaused(Lane l) => l.machine == Machine.macbook && macAsleep && l.state != LaneState.done;
+
+  /// Agents on [m] that are not done.
+  int agentsOn(Machine m) => lanes.where((l) => l.machine == m && l.state != LaneState.done).length;
+
+  /// The build server has work: an agent runs on it, or a ship is at a stage that runs there.
+  bool get serverBusy => lanes.any((l) {
+        if (l.state == LaneState.done) return false;
+        if (l.machine == Machine.server) return true;
+        final card = l.card;
+        return card is ShipCard && !card.done && card.placeOf(card.current) == Machine.server.name;
+      });
+
+  /// One word or two for the rail's machine list.
+  String statusOf(Machine m) => switch (m) {
+        Machine.box => 'luôn bật',
+        Machine.macbook => macAsleep ? 'đã ngủ' : 'đang mở',
+        Machine.server => serverBusy ? 'đang build' : 'rảnh',
+      };
+
+  void toggleMac() => setMacAsleep(!macAsleep);
+
+  /// The MacBook goes to sleep or wakes. Asleep: its agents stop where they are, and each one that was simply working
+  /// offers to move into the box ([HandoffCard]). Awake: they carry on.
+  void setMacAsleep(bool asleep) {
+    if (asleep == macAsleep) return;
+    _touch();
+    macAsleep = asleep;
+    final now = clock.now();
+    for (final l in lanes.where((l) => l.machine == Machine.macbook && l.state != LaneState.done)) {
+      if (asleep) {
+        l.addLog('MacBook đã ngủ, agent dừng tại đây');
+        if (l.card != null) continue; // already waiting on the human: keeps its card, just does not move on
+        l
+          ..card = const HandoffCard(Machine.macbook)
+          ..pending = ((choice) => choice == HandoffCard.move ? moveIntoBox() : const <Step>[])
+          ..waitingSince = now
+          ..state = LaneState.paused;
+        voice.chime('soft');
+      } else {
+        l.addLog('MacBook thức, agent chạy tiếp');
+        if (l.card is HandoffCard) {
+          l
+            ..card = null
+            ..pending = null
+            ..waitingSince = null;
+        }
+        if (l.state == LaneState.paused) l.state = LaneState.running;
+        l.nextAt = null; // the next step is due its own delay from now, not from before the sleep
+      }
+    }
+    notifyListeners();
+  }
+
   /// RAM the agents would take on the box: ~340 MB per Claude Code process (measured on a Mac), plus the system.
-  double get ramGb => .6 + .34 * running;
+  double get ramGb => .6 + .34 * agentsOn(Machine.box);
 
   void start({bool ticker = true}) {
     reset();
@@ -110,6 +168,7 @@ class AgentConsole extends ChangeNotifier {
     why = false;
     _whyAt = null;
     _mainTaken = false;
+    macAsleep = false;
     _autoFrom = now;
     _touchedAt = now;
     notifyListeners();
@@ -141,6 +200,8 @@ class AgentConsole extends ChangeNotifier {
           resolve(l, DangerCard.deny);
         case ReviewCard():
           resolve(l, ReviewCard.approve);
+        case HandoffCard():
+          resolve(l, HandoffCard.move);
         case ShipCard() || null:
           if (l.shippable) ship(l);
       }
@@ -186,6 +247,7 @@ class AgentConsole extends ChangeNotifier {
   }
 
   bool _advance(Lane l, DateTime now) {
+    if (isPaused(l)) return false;
     var changed = false;
     while (l.pending == null && l.cursor < l.steps.length) {
       final step = l.steps[l.cursor];
@@ -251,6 +313,8 @@ class AgentConsole extends ChangeNotifier {
         l.progress = 1;
         l.finishedAt = now;
         l.waitingSince = shippable ? now : null;
+      case MoveTo(:final machine):
+        l.machine = machine;
       case Wait():
         break;
     }
@@ -270,6 +334,15 @@ class AgentConsole extends ChangeNotifier {
       ..card = null
       ..waitingSince = null
       ..state = LaneState.running;
+    if (card is HandoffCard) {
+      if (choice == HandoffCard.move) {
+        lane.machine = Machine.box; // at once: the steps that follow must run while the MacBook sleeps
+      } else {
+        lane
+          ..state = LaneState.paused
+          ..addLog('Để agent chờ MacBook thức');
+      }
+    }
     final steps = next(choice);
     lane.steps.insertAll(lane.cursor, steps);
     lane.nextAt = steps.isEmpty ? null : now.add(steps.first.after);
