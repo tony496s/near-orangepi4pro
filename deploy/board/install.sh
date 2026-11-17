@@ -16,6 +16,8 @@ put() {  # put <src> <dest> <mode>
 put near-app-start.sh /usr/local/sbin/near-app-start 755
 put near-app.service /etc/systemd/system/near-app.service 644
 put near-voice.service /etc/systemd/system/near-voice.service 644
+# Lets ~/near/mode.env (written by near-demo, no sudo) switch the app; absent file = the unit as is.
+put near-app-mode.conf /etc/systemd/system/near-app.service.d/mode.conf 644
 mkdir -p "$ROOT/etc/near"
 if [ -z "$ROOT" ]; then
     systemctl daemon-reload

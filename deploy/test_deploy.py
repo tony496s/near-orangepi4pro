@@ -95,6 +95,13 @@ class UnitFilesTest(unittest.TestCase):
         self.assertIn("BUNDLE=${NEAR_BUNDLE:-/home/$RUN_AS/near/app}", text)
         self.assertIn('"$HOST:near/app/"', (DEPLOY / "push.sh").read_text())
 
+    def test_mode_drop_in_reads_an_optional_file_in_the_users_home(self):
+        u = unit("near-app-mode.conf")
+        # "-": without the file near-app runs exactly as the unit says.
+        self.assertEqual(u, {("Service", "EnvironmentFile"): ["-/home/orangepi/near/mode.env"]})
+        # near-demo writes it as the same user, relative to that home.
+        self.assertIn("mode=near/mode.env", (DEPLOY / "near-demo.sh").read_text())
+
     def test_scripts_parse(self):
         for script in [*DEPLOY.glob("*.sh"), *BOARD.glob("*.sh")]:
             with self.subTest(script=script.name):
@@ -114,9 +121,13 @@ class InstallTest(Scratch):
             installed = self.tmp / "etc/systemd/system" / name
             self.assertEqual(installed.read_text(), (BOARD / name).read_text())
             self.assertEqual(stat.S_IMODE(installed.stat().st_mode), 0o644)
+        dropin = self.tmp / "etc/systemd/system/near-app.service.d/mode.conf"
+        self.assertEqual(dropin.read_text(), (BOARD / "near-app-mode.conf").read_text())
+        self.assertEqual(stat.S_IMODE(dropin.stat().st_mode), 0o644)
         self.assertTrue((self.tmp / "etc/near").is_dir())
         self.assertFalse((self.tmp / "etc/near/autostart").exists(), "installing must not switch what boots")
-        self.assertEqual(list((self.tmp / "etc/systemd/system").glob("*.tmp")), [])
+        self.assertEqual(list((self.tmp / "etc/systemd/system").rglob("*.tmp")), [])
+        self.assertFalse((self.tmp / "home").exists(), "installing must not write the mode file")
 
     def test_refuses_to_touch_the_system_without_root(self):
         if os.geteuid() == 0:

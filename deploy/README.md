@@ -79,3 +79,34 @@ A second app in the same bundle: `NEAR_MODE=agents` shows the agent console (age
 voice) instead of the day strip. It is deployed next to the strip, in `~/near/app-agents`, and switched on with a systemd
 drop-in, so going back is one file away. Steps, the demo script and the hidden controls:
 `docs/superpowers/specs/2026-11-17-agent-console-demo-design.md` (sections 4–6).
+
+### Get the demo back: `near-demo`
+
+The demo is frozen at the tag `demo/agent-console-v1`. From any folder on the Mac:
+
+```
+near-demo                 # build the tag, copy it to ~/near/app-agents, switch the board to the demo, restart, check
+near-demo --off           # back to the normal app (~/near/app), no build
+```
+
+It builds in its own clone of the tag (`~/.cache/near-demo/src`, forced back to the tag on every run), so it gives the
+same demo whatever happens on the branches, `app/lib/agents` deleted included. It stops before building when the board
+is unreachable or not set up, and fails unless `near-app` is active and healthy about 20 s after the restart (then it
+prints the journal). The demo starts in manual mode; a double tap on the left rail turns autoplay on. `near-voice` is
+the board's own, not part of the tag.
+
+- Once per Mac: `install -m 755 deploy/near-demo-launcher.sh ~/.local/bin/near-demo` (any checkout of the tag).
+- Once per board set up before this: `near-demo --setup-board` asks for the board's sudo password and installs
+  `near-app.service.d/mode.conf` (`board/near-app-mode.conf`; `install.sh` installs it too), which makes `near-app`
+  read `~/near/mode.env`. near-demo writes that file and `--off` deletes it, so switching needs no password, only the
+  NOPASSWD `systemctl restart near-app`. Without the file the unit runs as before. It also removes the old
+  `agents.conf` drop-in.
+- Which board: `near-demo <ssh-host>`, or `NEAR_BOARD` / `NEAR_SSH_OPTS` for one run; otherwise
+  `~/.config/near/board.env` (outside the repo; `NEAR_CONFIG=<file>` picks another), otherwise `opi`. Anything given for
+  the run replaces the file as a whole, so `NEAR_SSH_OPTS= near-demo` is plain `opi` from `~/.ssh/config`. For a board
+  reached over IPv6 link-local (`%%` because ssh expands `%`):
+
+  ```
+  NEAR_BOARD=opi
+  NEAR_SSH_OPTS="-o HostName=<ipv6>%%<interface> -o HostKeyAlias=<name it has in known_hosts>"
+  ```

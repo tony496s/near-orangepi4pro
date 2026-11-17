@@ -1,6 +1,7 @@
 # Near app on the bar display (flutter-pi on DRM/KMS, no X). Installed by install.sh.
 # On:  sudo touch /etc/near/autostart && sudo systemctl start near-app   (stops phase0-flutter and lightdm)
 # Off: sudo rm /etc/near/autostart && sudo systemctl stop near-app near-voice
+# Which app: near-app.service.d/mode.conf (near-app-mode.conf) lets ~/near/mode.env override NEAR_BUNDLE/NEAR_MODE.
 [Unit]
 Description=Near desk strip app (flutter-pi on DRM/KMS)
 ConditionPathExists=/etc/near/autostart

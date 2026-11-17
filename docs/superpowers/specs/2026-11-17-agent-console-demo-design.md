@@ -101,6 +101,10 @@ câu thì chạm nút **VI** để chuyển sang **EN** (đi qua Harness, cần 
 
 ## 6. Chạy trên board
 
+Bây giờ dùng `near-demo` (mục "Get the demo back" trong `deploy/README.md`): build lại đúng tag `demo/agent-console-v1`,
+đẩy vào `~/near/app-agents`, ghi `~/near/mode.env` rồi restart `near-app`; `near-demo --off` để về app Near cũ. Drop-in
+`agents.conf` dưới đây là cách cũ, `near-demo --setup-board` gỡ nó.
+
 Bundle nằm ở `~/near/app-agents`, tách khỏi app Near cũ ở `~/near/app`. Một drop-in systemd chuyển `near-app` sang bundle
 này:
 
