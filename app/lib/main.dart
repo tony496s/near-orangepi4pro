@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 
+import 'agents/agent_console.dart';
+import 'agents/console_app.dart';
 import 'app/app_controller.dart';
 import 'core/clock.dart';
 import 'data/calendar_source.dart';
@@ -14,7 +16,8 @@ import 'voice/voice_client.dart';
 /// - NEAR_DATA_DIR: where state.json lives (default ~/.local/share/near);
 /// - NEAR_VOICE_PORT: port of the near-voice service on localhost (default 8781);
 /// - NEAR_DEMO_MOVE_AFTER: minutes after launch when the sample 1:1 (14:30) moves to 14:00 (default 20; "off": only
-///   on SIGUSR2).
+///   on SIGUSR2);
+/// - NEAR_MODE=agents: the agent console demo instead of the day strip (see [runAgentConsole]).
 ///
 /// Demo of "lịch đổi" (scenario 6, 13:05): `kill -USR2 <flutter-pi pid>` moves the 1:1 now and fetches the calendar,
 /// so the strip shows "LỊCH VỪA ĐỔI · 14:30 → 14:00" and the old slot as a dashed ghost at once (only before 14:00).
@@ -23,6 +26,7 @@ import 'voice/voice_client.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   void log(String s) => stdout.writeln('near: $s');
+  if (Platform.environment['NEAR_MODE'] == 'agents') return runAgentConsole(log);
   const clock = SystemClock();
   final moveEnv = Platform.environment['NEAR_DEMO_MOVE_AFTER'];
   final sample = SampleCalendarSource(
@@ -53,4 +57,18 @@ Future<void> main() async {
     });
   }
   runApp(StripApp(controller: controller));
+}
+
+/// The agent console demo: agents running in the box, given work by voice. On the board, `kill -USR1 <pid>` listens
+/// (like a tap on the "giao việc" slot) and `kill -USR2 <pid>` starts the demo over. NEAR_AGENTS_AUTOPLAY=1 starts it
+/// playing by itself (a double tap on the left rail toggles that too).
+void runAgentConsole(void Function(String) log) {
+  final voice = VoiceClient(port: int.tryParse(Platform.environment['NEAR_VOICE_PORT'] ?? '') ?? 8781, log: log)..start();
+  final console = AgentConsole(voice: voice, log: log)..start();
+  if (Platform.environment['NEAR_AGENTS_AUTOPLAY'] == '1') console.setAutoplay(true);
+  if (Platform.isLinux) {
+    ProcessSignal.sigusr1.watch().listen((_) => console.talk());
+    ProcessSignal.sigusr2.watch().listen((_) => console.reset());
+  }
+  runApp(ConsoleApp(console: console));
 }
