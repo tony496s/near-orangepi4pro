@@ -24,6 +24,9 @@ class AgentConsole extends ChangeNotifier {
 
   static void _noLog(String _) {}
 
+  /// A task named for the MacBook while it sleeps: where it runs instead (lane log and slot note).
+  static const macAsleepToBox = 'MacBook đang ngủ → chạy trong hộp';
+
   /// Most lanes on the strip; a new task beyond that replaces the oldest finished lane.
   static const maxLanes = 5;
 
@@ -53,12 +56,18 @@ class AgentConsole extends ChangeNotifier {
   /// Counts ticks: drives the blinking cursor and the spinner.
   int beat = 0;
 
-  /// Plays the story by itself (nobody at the strip): gives the demo task, answers every card with the safe choice,
-  /// ships, shows the comparison, then starts over.
+  /// Plays the story by itself (nobody at the strip): puts the MacBook to sleep (its agent moves into the box), gives
+  /// the demo task, answers every card with the safe choice, ships, shows the comparison, then starts over.
   bool autoplay = false;
   DateTime _autoFrom = DateTime(0);
 
-  static const autoTaskAfter = Duration(seconds: 6);
+  /// Autoplay has put the MacBook to sleep in this run of the story (once per run: a Mac woken by hand stays awake).
+  bool _autoSlept = false;
+
+  static const autoSleepAfter = Duration(seconds: 4);
+
+  /// The demo task comes this long after the start, and only once no agent waits to move off the sleeping MacBook.
+  static const autoTaskAfter = Duration(seconds: 12);
   static const autoAnswerAfter = Duration(seconds: 4);
   static const autoWhyFor = Duration(seconds: 12);
   static const autoTask = 'Thêm hiệu ứng chờ cho nút đăng nhập';
@@ -85,8 +94,14 @@ class AgentConsole extends ChangeNotifier {
   /// The MacBook is asleep: the presenter closed its lid and tapped it on the rail (the board cannot see the lid).
   bool macAsleep = false;
 
-  /// The lane's machine is asleep, so its agent does not move on.
-  bool isPaused(Lane l) => l.machine == Machine.macbook && macAsleep && l.state != LaneState.done;
+  /// The lane's machine is asleep, so its agent does not move on. A lane whose agent has finished (ready to ship,
+  /// shipping, done) does not need its machine any more: the box runs the ship.
+  bool isPaused(Lane l) => l.machine == Machine.macbook && macAsleep && _needsMachine(l);
+
+  static bool _needsMachine(Lane l) => switch (l.state) {
+        LaneState.ready || LaneState.shipping || LaneState.done => false,
+        _ => true,
+      };
 
   /// Agents on [m] that are not done.
   int agentsOn(Machine m) => lanes.where((l) => l.machine == m && l.state != LaneState.done).length;
@@ -94,7 +109,7 @@ class AgentConsole extends ChangeNotifier {
   /// The build server has work: an agent runs on it, or a ship is at a stage that runs there.
   bool get serverBusy => lanes.any((l) {
         if (l.state == LaneState.done) return false;
-        if (l.machine == Machine.server) return true;
+        if (l.machine == Machine.server && _needsMachine(l)) return true;
         final card = l.card;
         return card is ShipCard && !card.done && card.placeOf(card.current) == Machine.server.name;
       });
@@ -109,22 +124,18 @@ class AgentConsole extends ChangeNotifier {
   void toggleMac() => setMacAsleep(!macAsleep);
 
   /// The MacBook goes to sleep or wakes. Asleep: its agents stop where they are, and each one that was simply working
-  /// offers to move into the box ([HandoffCard]). Awake: they carry on.
+  /// offers to move into the box ([HandoffCard]); one waiting on a card keeps it and offers the move once answered.
+  /// Awake: they carry on.
   void setMacAsleep(bool asleep) {
     if (asleep == macAsleep) return;
     _touch();
     macAsleep = asleep;
     final now = clock.now();
-    for (final l in lanes.where((l) => l.machine == Machine.macbook && l.state != LaneState.done)) {
+    for (final l in lanes.where((l) => l.machine == Machine.macbook && _needsMachine(l))) {
       if (asleep) {
         l.addLog('MacBook đã ngủ, agent dừng tại đây');
         if (l.card != null) continue; // already waiting on the human: keeps its card, just does not move on
-        l
-          ..card = const HandoffCard(Machine.macbook)
-          ..pending = ((choice) => choice == HandoffCard.move ? moveIntoBox() : const <Step>[])
-          ..waitingSince = now
-          ..state = LaneState.paused;
-        voice.chime('soft');
+        _offerHandoff(l, now);
       } else {
         l.addLog('MacBook thức, agent chạy tiếp');
         if (l.card is HandoffCard) {
@@ -138,6 +149,16 @@ class AgentConsole extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  /// [l]'s MacBook sleeps: the agent waits for the human to move it (branch and session) into the box, or to leave it.
+  void _offerHandoff(Lane l, DateTime now) {
+    l
+      ..card = const HandoffCard(Machine.macbook)
+      ..pending = ((choice) => choice == HandoffCard.move ? moveIntoBox(l) : const <Step>[])
+      ..waitingSince = now
+      ..state = LaneState.paused;
+    voice.chime('soft');
   }
 
   /// RAM the agents would take on the box: ~340 MB per Claude Code process (measured on a Mac), plus the system.
@@ -169,6 +190,7 @@ class AgentConsole extends ChangeNotifier {
     _whyAt = null;
     _mainTaken = false;
     macAsleep = false;
+    _autoSlept = false;
     _autoFrom = now;
     _touchedAt = now;
     notifyListeners();
@@ -186,7 +208,15 @@ class AgentConsole extends ChangeNotifier {
       if (!now.isBefore(_autoFrom.add(autoWhyFor))) reset();
       return;
     }
-    if (!_mainTaken && voicePhase == VoicePhase.idle && !now.isBefore(_autoFrom.add(autoTaskAfter))) {
+    if (!_autoSlept && !now.isBefore(_autoFrom.add(autoSleepAfter))) {
+      _autoSlept = true;
+      setMacAsleep(true);
+      return;
+    }
+    if (!_mainTaken &&
+        voicePhase == VoicePhase.idle &&
+        !lanes.any((l) => l.card is HandoffCard) &&
+        !now.isBefore(_autoFrom.add(autoTaskAfter))) {
       addTask(autoTask, voiceGiven: true);
       return;
     }
@@ -303,7 +333,7 @@ class AgentConsole extends ChangeNotifier {
       case ShipStage(:final index):
         l.state = LaneState.shipping;
         l.card = ShipCard(shipStages, index, version: shipVersion, places: shipPlaces);
-        if (index > 0) l.addLog('✓ ${shipStages[index - 1]}');
+        if (index > 0) l.addLog(shipStageDone(index - 1));
         if (index == shipStages.length) voice.chime('soft');
       case Finish(:final summary, :final shippable):
         l.card = null;
@@ -346,6 +376,8 @@ class AgentConsole extends ChangeNotifier {
     final steps = next(choice);
     lane.steps.insertAll(lane.cursor, steps);
     lane.nextAt = steps.isEmpty ? null : now.add(steps.first.after);
+    // Answered while its MacBook sleeps: the agent still cannot go on there, so it offers the move now.
+    if (card is! HandoffCard && isPaused(lane)) _offerHandoff(lane, now);
     _advance(lane, now);
     notifyListeners();
   }
@@ -464,7 +496,8 @@ class AgentConsole extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// What was said: "ship" ships the lane that is ready; anything else is a new task.
+  /// What was said: "ship" ships the lane that is ready; anything else is a new task, on the machine it names
+  /// ("… trên laptop", "… trên server", see [machineIn]) or in the box.
   void heard(String text) {
     final tokens = fixDevWords(tokenize(text));
     if (tokens.isEmpty) {
@@ -480,11 +513,17 @@ class AgentConsole extends ChangeNotifier {
       }
       return;
     }
-    addTask(sentence(tokens), voiceGiven: true);
+    final (:machine, :rest) = machineIn(tokens);
+    if (rest.isEmpty) {
+      _say('Không nghe rõ, chạm để nói lại');
+      return;
+    }
+    addTask(sentence(rest), voiceGiven: true, machine: machine ?? Machine.box);
   }
 
-  /// Opens a lane for [task]. The first one after a reset runs the login story; later ones a short generic run.
-  Lane? addTask(String task, {bool voiceGiven = false}) {
+  /// Opens a lane for [task] on [machine]. The first one after a reset runs the login story; later ones a short
+  /// generic run. A task for the MacBook while it sleeps runs in the box instead, and the slot says so.
+  Lane? addTask(String task, {bool voiceGiven = false, Machine machine = Machine.box}) {
     _touch();
     if (lanes.length >= maxLanes) {
       final i = lanes.indexWhere((l) => l.state == LaneState.done);
@@ -497,6 +536,8 @@ class AgentConsole extends ChangeNotifier {
     final now = clock.now();
     final main = !_mainTaken;
     _mainTaken = true;
+    final toBox = machine == Machine.macbook && macAsleep;
+    final on = toBox ? Machine.box : machine;
     final lane = Lane(
       id: 'task-${++_laneSeq}',
       repo: main ? 'harness-mobile' : repoFor(tokenize(task)),
@@ -504,12 +545,17 @@ class AgentConsole extends ChangeNotifier {
       task: task,
       startedAt: now,
       voiceGiven: voiceGiven,
-      log: const ['Nhận việc từ giọng nói'],
+      machine: on,
+      log: [
+        'Nhận việc từ giọng nói',
+        if (toBox) macAsleepToBox else if (on != Machine.box) '→ Giao ${on.name} qua Harness',
+      ],
       steps: main ? loginScript() : genericScript(),
     );
     lane.nextAt = now.add(lane.steps.first.after);
     lanes.add(lane);
     voice.chime('soft');
+    if (toBox) _say(macAsleepToBox);
     notifyListeners();
     return lane;
   }

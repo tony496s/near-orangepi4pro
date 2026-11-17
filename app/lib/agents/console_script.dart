@@ -3,10 +3,12 @@ import 'console_model.dart';
 /// The scripted agents of the demo. Logs read like the tool calls of a coding agent; the repos and numbers are made up.
 ///
 /// Story (flags between lanes in brackets):
-/// 1. three agents already run in the box (backend, near-app, docs);
+/// 1. three agents already run: backend and near-app in the box, harness-web on the MacBook; when the MacBook sleeps
+///    the web agent offers to move into the box ([moveIntoBox]);
 /// 2. a task given by voice opens a fourth lane ([loginScript]); it asks a question → [asked];
 /// 3. the backend agent then wants `git push --force` and is stopped until the human decides → [danger-done];
-/// 4. the voice task shows its before/after for approval → [approved], then can be shipped → [shipped].
+/// 4. the voice task shows its before/after for approval → [approved], then can be shipped → [shipped]: the box
+///    hands the iOS build to the build server ([shipScript]).
 abstract final class Flags {
   static const asked = 'asked';
   static const dangerDone = 'danger-done';
@@ -20,6 +22,16 @@ const shipStages = ['Build iOS', 'Ký app', 'Upload', 'Apple xử lý'];
 /// server.
 final shipPlaces = [Machine.server.name, Machine.server.name, Machine.server.name, 'App Store Connect'];
 const shipVersion = '0.1.71';
+
+/// Log line when ship stage [i] is done; a stage on the build server says so ("✓ Build iOS · Server build").
+String shipStageDone(int i) {
+  final place = i < shipPlaces.length ? shipPlaces[i] : '';
+  return place == Machine.server.name ? '✓ ${shipStages[i]} · $place' : '✓ ${shipStages[i]}';
+}
+
+/// Branches the scripted agents work on.
+const webBranch = 'fix/upload-anh';
+const loginBranch = 'feat/login-loading';
 
 Duration _s(num seconds) => Duration(milliseconds: (seconds * 1000).round());
 
@@ -148,7 +160,7 @@ Ask _review() => Ask(
       const ReviewCard(tests: '42/42', diff: '+38 −6', files: 3, took: '4 phút'),
       (choice) => choice == ReviewCard.approve
           ? [
-              Say(r'$ git push -u origin feat/login-loading', command: true, after: _s(.6)),
+              Say('\$ git push -u origin $loginBranch', command: true, after: _s(.6)),
               Say(r'$ gh pr create   PR #128', command: true, after: _s(1.2), progress: 1),
               const Raise(Flags.approved),
               Say('CI: build ✓ · test ✓', after: _s(2.5)),
@@ -163,14 +175,29 @@ Ask _review() => Ask(
       after: _s(1.5),
     );
 
-/// What an agent does after it moves from the sleeping MacBook into the box (TODO(logic): fit it to the lane).
-List<Step> moveIntoBox() => [
-      Say('Chuyển vào hộp: kéo nhánh và phiên làm việc từ MacBook', after: _s(.4)),
+/// The branch [l]'s agent works on: what Harness hands over when the agent moves to another machine.
+String branchOf(Lane l) {
+  if (l.id == 'web') return webBranch;
+  // The login story is the only script with a review card.
+  if (l.steps.any((s) => s is Ask && s.card is ReviewCard)) return loginBranch;
+  return 'agent/${l.id}';
+}
+
+/// What [l]'s agent does after it moves from the sleeping MacBook into the box: Harness hands over its branch and
+/// session, the box checks the branch out, and the agent goes on from where it stopped. Lines stay short (a lane
+/// without a card is about 250 px wide).
+List<Step> moveIntoBox(Lane l) => [
+      Say('Chuyển vào hộp qua Harness', after: _s(.4)),
+      Say('Nhận nhánh và phiên làm việc', after: _s(1)),
+      Say('\$ git switch ${branchOf(l)}', command: true, after: _s(1.2)),
       Say('Tiếp tục trong hộp', after: _s(1.2)),
     ];
 
-/// Steps of a ship to TestFlight, appended to a shippable lane.
+/// Steps of a ship to TestFlight, appended to a shippable lane. The board (ARM Linux) cannot build iOS, so the box
+/// hands the build, the signing and the upload to the build server and follows them from there.
 List<Step> shipScript() => [
+      const Say('Board ARM không build được iOS', after: Duration.zero),
+      Say('→ Giao ${Machine.server.name}', after: Duration.zero),
       for (var i = 0; i <= shipStages.length; i++)
         ShipStage(i, after: i == 0 ? Duration.zero : _s(i == shipStages.length ? 4 : 2.8)),
       Finish('Bản $shipVersion đã lên TestFlight', after: _s(4)),

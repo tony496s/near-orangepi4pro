@@ -3,6 +3,8 @@
 /// "ship" → "syp", "testflight" → "test levis", "backend" → "barcade", and "hey near" → "hai nia".
 library;
 
+import 'console_model.dart';
+
 const _fixes = <List<String>, String>{
   ['leo', 'đình']: 'loading',
   ['lô', 'đinh']: 'loading',
@@ -65,6 +67,46 @@ List<String> fixDevWords(List<String> tokens) {
     out.add(t[i++]);
   }
   return out;
+}
+
+/// Words a machine phrase must follow: "… trên laptop", "… ở server".
+const _on = {'trên', 'ở'};
+
+/// Machines a spoken task can name, as the board's model heard them (17/11, synthetic voice): "trên macbook" →
+/// "trên ma quốc" or "trên macbook", "trên máy mac" → "trên máy móc", "trên máy chủ" → "trên mái chủ"; "laptop" and
+/// "server" come through as is. Two-word phrases first, so "mac book" is not taken as "mac".
+const _machines = <(List<String>, Machine)>[
+  (['mac', 'book'], Machine.macbook),
+  (['mác', 'búc'], Machine.macbook),
+  (['mắc', 'búc'], Machine.macbook),
+  (['ma', 'quốc'], Machine.macbook),
+  (['máy', 'mac'], Machine.macbook),
+  (['máy', 'móc'], Machine.macbook),
+  (['lap', 'top'], Machine.macbook),
+  (['máy', 'chủ'], Machine.server),
+  (['mái', 'chủ'], Machine.server),
+  (['sơ', 'vơ'], Machine.server),
+  (['macbook'], Machine.macbook),
+  (['laptop'], Machine.macbook),
+  (['mac'], Machine.macbook),
+  (['server'], Machine.server),
+];
+
+/// The machine a spoken task names ("… trên laptop", "… ở server") and [tokens] (lower case, after [fixDevWords])
+/// without the phrase and the "trên" / "ở" before it; no machine: `null` and [tokens] as they are.
+///
+/// A machine counts only right after "trên" or "ở": "máy móc" is a real word, and a bare "server" or "laptop" is more
+/// likely what the task is about ("thêm cache cho server") than where it should run.
+({Machine? machine, List<String> rest}) machineIn(List<String> tokens) {
+  for (var i = 1; i < tokens.length; i++) {
+    if (!_on.contains(tokens[i - 1])) continue;
+    for (final (phrase, machine) in _machines) {
+      if (_at(tokens, i, phrase)) {
+        return (machine: machine, rest: [...tokens.sublist(0, i - 1), ...tokens.sublist(i + phrase.length)]);
+      }
+    }
+  }
+  return (machine: null, rest: tokens);
 }
 
 bool _at(List<String> t, int i, List<String> phrase) {

@@ -43,6 +43,21 @@ class Rig {
     }
     expect(done(), isTrue, reason: 'condition not met within $limit');
   }
+
+  /// Plays the story up to the ship button: the spoken task's question, the denied push --force, the approved review.
+  Lane storyToShip([String said = 'THÊM LOADING CHO NÚT ĐĂNG NHẬP']) {
+    say(said);
+    final task = console.lanes.last;
+    until(() => task.card is QuestionCard);
+    console.resolve(task, 0);
+    final backend = lane('backend');
+    until(() => backend.card is DangerCard);
+    console.resolve(backend, DangerCard.deny);
+    until(() => task.card is ReviewCard);
+    console.resolve(task, ReviewCard.approve);
+    until(() => task.state == LaneState.ready);
+    return task;
+  }
 }
 
 void main() {
@@ -200,6 +215,7 @@ void main() {
       expect(task.card, isA<ShipCard>());
       r.until(() => task.state == LaneState.done);
       expect(task.summary, 'Bản $shipVersion đã lên TestFlight');
+      expect(task.log, contains('✓ Build iOS · Server build'));
       expect(task.log, contains('✓ Apple xử lý'));
       expect(r.console.flags, contains(Flags.shipped));
 
@@ -336,12 +352,23 @@ void main() {
   group('autoplay', () {
     test('plays the whole story by itself, then starts over', () {
       final r = Rig();
+      final start = r.clock.now();
       r.console.setAutoplay(true);
+      r.run(AgentConsole.autoSleepAfter - const Duration(milliseconds: 400));
+      expect(r.console.macAsleep, isFalse);
+      r.until(() => r.console.macAsleep);
+      final web = r.lane('web');
+      expect(web.card, isA<HandoffCard>());
+      expect(web.state, LaneState.paused);
+      r.until(() => web.machine == Machine.box);
+      expect(web.card, isNull, reason: 'autoplay moves the MacBook agent into the box');
       r.until(() => r.console.lanes.length == 4);
+      expect(r.clock.now().difference(start), greaterThanOrEqualTo(AgentConsole.autoTaskAfter));
       final task = r.console.lanes.last;
       expect(task.task, AgentConsole.autoTask);
       expect(task.voiceGiven, isTrue);
       r.until(() => task.card is QuestionCard);
+      expect(web.log, contains('Tiếp tục trong hộp'));
       r.until(() => task.card == null);
       expect(task.log, contains('Anh chọn: Trong nút'));
       final backend = r.lane('backend');
@@ -350,10 +377,32 @@ void main() {
       expect(backend.summary, 'PR #129 · chờ review', reason: 'autoplay denies the dangerous command');
       r.until(() => task.state == LaneState.shipping, limit: const Duration(seconds: 90));
       r.until(() => r.console.why, limit: const Duration(seconds: 90));
+      expect(web.summary, 'PR #130 · chờ review', reason: 'the moved agent finished in the box');
       r.until(() => !r.console.why);
       expect(r.console.lanes, hasLength(3));
+      expect(r.console.macAsleep, isFalse, reason: 'starting over wakes the MacBook');
+      expect(r.lane('web').machine, Machine.macbook);
       expect(r.console.autoplay, isTrue);
+      r.until(() => r.console.macAsleep);
       r.until(() => r.console.lanes.length == 4);
+    });
+
+    test('the demo task waits while an agent still waits to move off the MacBook', () {
+      final r = Rig();
+      final start = r.clock.now();
+      r.console.setAutoplay(true);
+      r.until(() => r.console.macAsleep);
+      r.console.toggleMac(); // woken by hand: the handoff is taken back
+      r.run(start.add(AgentConsole.autoTaskAfter).difference(r.clock.now()) - const Duration(seconds: 1));
+      expect(r.console.macAsleep, isFalse, reason: 'autoplay puts the MacBook to sleep once per run');
+      r.console.toggleMac(); // asleep again just before the task is due: a fresh handoff
+      final web = r.lane('web');
+      r.run(const Duration(seconds: 2));
+      expect(web.card, isA<HandoffCard>());
+      expect(r.console.lanes, hasLength(3));
+      r.until(() => r.console.lanes.length == 4);
+      expect(web.machine, Machine.box);
+      expect(web.card, isNull);
     });
 
     test('a comparison opened by hand stays its full time before autoplay starts over', () {
@@ -376,6 +425,292 @@ void main() {
       r.until(() => task.card is QuestionCard);
       r.run(const Duration(seconds: 30));
       expect(task.card, isA<QuestionCard>());
+    });
+  });
+
+  group('machines', () {
+    test('two agents run in the box and one on the MacBook, which is awake', () {
+      final r = Rig();
+      expect(r.console.lanes.map((l) => l.machine), [Machine.box, Machine.box, Machine.macbook]);
+      expect(r.lane('web').machine, Machine.macbook);
+      expect(r.console.macAsleep, isFalse);
+      expect(r.console.agentsOn(Machine.box), 2);
+      expect(r.console.agentsOn(Machine.macbook), 1);
+      expect(r.console.agentsOn(Machine.server), 0);
+      expect(r.console.statusOf(Machine.box), 'luôn bật');
+      expect(r.console.statusOf(Machine.macbook), 'đang mở');
+      expect(r.console.statusOf(Machine.server), 'rảnh');
+      expect(r.console.serverBusy, isFalse);
+      expect(r.console.lanes.any(r.console.isPaused), isFalse);
+    });
+
+    test('the MacBook going to sleep pauses its agent, which offers to move into the box', () {
+      final r = Rig();
+      r.run(const Duration(seconds: 2));
+      expect(r.voice.sent, isNot(contains('chime soft')));
+      r.console.toggleMac();
+      expect(r.console.macAsleep, isTrue);
+      expect(r.console.statusOf(Machine.macbook), 'đã ngủ');
+      final web = r.lane('web');
+      expect(web.state, LaneState.paused);
+      expect(r.console.isPaused(web), isTrue);
+      expect(web.card, isA<HandoffCard>().having((c) => c.from, 'from', Machine.macbook));
+      expect(web.waitingSince, r.clock.now());
+      expect(web.log.last, 'MacBook đã ngủ, agent dừng tại đây');
+      expect(r.voice.sent, contains('chime soft'));
+      for (final id in ['backend', 'near-app']) {
+        expect(r.lane(id).state, LaneState.running, reason: id);
+        expect(r.lane(id).card, isNull, reason: id);
+        expect(r.console.isPaused(r.lane(id)), isFalse, reason: id);
+      }
+    });
+
+    test('moved into the box, the agent takes its branch along and carries on to its PR', () {
+      final r = Rig();
+      r.console.toggleMac();
+      final web = r.lane('web');
+      final ram = r.console.ramGb;
+      r.console.resolve(web, HandoffCard.move);
+      expect(web.machine, Machine.box);
+      expect(web.state, LaneState.running);
+      expect(web.card, isNull);
+      expect(r.console.isPaused(web), isFalse);
+      expect(r.console.agentsOn(Machine.box), 3);
+      expect(r.console.agentsOn(Machine.macbook), 0);
+      expect(r.console.ramGb, closeTo(ram + .34, 1e-9));
+      r.run(const Duration(seconds: 5));
+      expect(
+        web.log,
+        containsAllInOrder(
+            ['Chuyển vào hộp qua Harness', 'Nhận nhánh và phiên làm việc', r'$ git switch fix/upload-anh', 'Tiếp tục trong hộp']),
+      );
+      expect(r.console.macAsleep, isTrue, reason: 'it runs on while the MacBook sleeps');
+      r.storyToShip();
+      expect(r.console.flags, contains(Flags.approved));
+      r.until(() => web.state == LaneState.done);
+      expect(web.summary, 'PR #130 · chờ review');
+      expect(web.machine, Machine.box);
+    });
+
+    test('left on the MacBook, a paused agent does not move on until the Mac wakes', () {
+      final r = Rig();
+      r.console.toggleMac();
+      final web = r.lane('web');
+      r.console.resolve(web, HandoffCard.stay);
+      expect(web.card, isNull);
+      expect(web.state, LaneState.paused);
+      expect(web.machine, Machine.macbook);
+      expect(web.log.last, 'Để agent chờ MacBook thức');
+      final log = web.log.length;
+      final cursor = web.cursor;
+      final backendLog = r.lane('backend').log.length;
+      r.run(const Duration(seconds: 30));
+      expect(web.log.length, log, reason: 'a paused agent does not move on');
+      expect(web.cursor, cursor);
+      expect(r.lane('backend').log.length, greaterThan(backendLog));
+      r.console.toggleMac();
+      expect(web.state, LaneState.running);
+      expect(web.log.last, 'MacBook thức, agent chạy tiếp');
+      r.run(const Duration(seconds: 10));
+      expect(web.log.length, greaterThan(log + 2));
+      expect(web.log, isNot(contains('Tiếp tục trong hộp')));
+    });
+
+    test('a MacBook agent already waiting on a card keeps it when the Mac sleeps', () {
+      final r = Rig();
+      r.say('THÊM HIỆU ỨNG CHỜ CHO NÚT ĐĂNG NHẬP TRÊN LAPTOP');
+      final task = r.task;
+      expect(task.machine, Machine.macbook);
+      r.until(() => task.card is QuestionCard);
+      r.console.toggleMac();
+      expect(task.card, isA<QuestionCard>());
+      expect(task.state, LaneState.asking);
+      expect(task.log.last, 'MacBook đã ngủ, agent dừng tại đây');
+      expect(r.lane('web').card, isA<HandoffCard>());
+    });
+
+    test('answered while the Mac sleeps, the agent offers the move, then goes on in the box', () {
+      final r = Rig();
+      r.say('THÊM HIỆU ỨNG CHỜ CHO NÚT ĐĂNG NHẬP TRÊN LAPTOP');
+      final task = r.task;
+      r.until(() => task.card is QuestionCard);
+      r.console.toggleMac();
+      r.console.resolve(task, 0);
+      expect(task.log, contains('Anh chọn: Trong nút'));
+      expect(task.card, isA<HandoffCard>());
+      expect(task.state, LaneState.paused);
+      r.run(const Duration(seconds: 5));
+      expect(r.console.flags, isNot(contains(Flags.asked)), reason: 'nothing runs on the sleeping MacBook');
+      r.console.resolve(task, HandoffCard.move);
+      expect(task.machine, Machine.box);
+      r.until(() => r.console.flags.contains(Flags.asked));
+      expect(task.log, containsAllInOrder(['Chuyển vào hộp qua Harness', r'$ git switch feat/login-loading', 'Tiếp tục trong hộp']));
+    });
+
+    test('waking the MacBook takes back an unanswered handoff', () {
+      final r = Rig();
+      r.console.toggleMac();
+      final web = r.lane('web');
+      expect(web.card, isA<HandoffCard>());
+      r.console.toggleMac();
+      expect(r.console.macAsleep, isFalse);
+      expect(r.console.statusOf(Machine.macbook), 'đang mở');
+      expect(web.card, isNull);
+      expect(web.pending, isNull);
+      expect(web.waitingSince, isNull);
+      expect(web.state, LaneState.running);
+      r.console.resolve(web, HandoffCard.move);
+      expect(web.machine, Machine.macbook, reason: 'nothing is left to answer');
+      final log = web.log.length;
+      r.run(const Duration(seconds: 8));
+      expect(web.log.length, greaterThan(log));
+    });
+
+    test('a finished MacBook agent ships while the Mac sleeps: the box runs the ship', () {
+      final r = Rig();
+      final task = r.storyToShip('THÊM LOADING CHO NÚT ĐĂNG NHẬP TRÊN MACBOOK');
+      expect(task.machine, Machine.macbook);
+      r.console.toggleMac();
+      expect(task.card, isNull);
+      expect(task.state, LaneState.ready);
+      expect(r.console.isPaused(task), isFalse);
+      r.console.ship(task);
+      r.until(() => task.state == LaneState.done);
+      expect(task.summary, 'Bản $shipVersion đã lên TestFlight');
+    });
+
+    test('RAM counts the agents in the box only', () {
+      final r = Rig();
+      final start = r.console.ramGb;
+      expect(start, closeTo(.6 + .34 * 2, 1e-9));
+      r.say('THÊM HIỆU ỨNG CHỜ TRÊN LAPTOP');
+      expect(r.console.ramGb, closeTo(start, 1e-9));
+      r.say('THÊM NÚT ĐĂNG XUẤT');
+      expect(r.console.ramGb, closeTo(start + .34, 1e-9));
+      r.console.toggleMac();
+      r.console.resolve(r.lane('web'), HandoffCard.move);
+      expect(r.console.ramGb, closeTo(start + .68, 1e-9));
+    });
+
+    test('reset wakes the MacBook and puts the web agent back on it', () {
+      final r = Rig();
+      r.console.toggleMac();
+      r.console.resolve(r.lane('web'), HandoffCard.move);
+      r.console.reset();
+      expect(r.console.macAsleep, isFalse);
+      final web = r.lane('web');
+      expect(web.machine, Machine.macbook);
+      expect(web.state, LaneState.running);
+      expect(web.card, isNull);
+      expect(r.console.isPaused(web), isFalse);
+    });
+  });
+
+  group('ship on the build server', () {
+    test('the box hands build, signing and upload to the server, busy until Apple has the build', () {
+      final r = Rig();
+      final task = r.storyToShip();
+      expect(r.console.serverBusy, isFalse);
+      r.console.ship(task);
+      expect(task.log, containsAllInOrder(['Board ARM không build được iOS', '→ Giao Server build']));
+      final card = task.card as ShipCard;
+      expect(card.places, shipPlaces);
+      expect(card.placeOf(card.current), Machine.server.name);
+      expect(r.console.statusOf(Machine.server), 'đang build');
+      final busy = <int, Set<bool>>{};
+      r.until(() {
+        final c = task.card;
+        if (c is ShipCard) (busy[c.current] ??= {}).add(r.console.serverBusy);
+        return task.state == LaneState.done;
+      });
+      expect(busy, {
+        0: {true},
+        1: {true},
+        2: {true},
+        3: {false},
+        4: {false},
+      });
+      expect(r.console.serverBusy, isFalse);
+      expect(r.console.statusOf(Machine.server), 'rảnh');
+      expect(
+        task.log,
+        containsAllInOrder(['✓ Build iOS · Server build', '✓ Ký app · Server build', '✓ Upload · Server build', '✓ Apple xử lý']),
+      );
+    });
+  });
+
+  group('machine by voice', () {
+    const title = 'Thêm hiệu ứng chờ cho nút đăng nhập';
+
+    test('a task named for the MacBook runs there, said any way the board heard it', () {
+      for (final said in ['TRÊN MA QUỐC', 'TRÊN MACBOOK', 'TRÊN LAPTOP', 'TRÊN MÁY MÓC']) {
+        final r = Rig();
+        r.say('THÊM HIỆU ỨNG CHỜ CHO NÚT ĐĂNG NHẬP $said');
+        final task = r.task;
+        expect(task.task, title, reason: said);
+        expect(task.machine, Machine.macbook, reason: said);
+        expect(task.repo, 'harness-mobile', reason: said);
+        expect(task.log, contains('→ Giao MacBook qua Harness'), reason: said);
+        expect(r.console.agentsOn(Machine.macbook), 2, reason: said);
+        r.until(() => task.card is QuestionCard); // the login story, on the MacBook
+      }
+    });
+
+    test('a task named for the server runs there, and the server is not taken for the backend repo', () {
+      for (final said in ['TRÊN SERVER', 'TRÊN MÁI CHỦ', 'Ở MÁY CHỦ', 'TRÊN SƠ VƠ']) {
+        final r = Rig();
+        r.say('THÊM HIỆU ỨNG CHỜ CHO NÚT ĐĂNG NHẬP $said');
+        expect(r.task.task, title, reason: said);
+        expect(r.task.machine, Machine.server, reason: said);
+        expect(r.task.log, contains('→ Giao Server build qua Harness'), reason: said);
+        expect(r.console.serverBusy, isTrue, reason: said);
+        expect(r.console.statusOf(Machine.server), 'đang build', reason: said);
+        r.say('SỬA LỖI ĐĂNG XUẤT $said');
+        final later = r.console.lanes.last;
+        expect(later.task, 'Sửa lỗi đăng xuất', reason: said);
+        expect(later.machine, Machine.server, reason: said);
+        expect(later.repo, 'harness-mobile', reason: said);
+      }
+    });
+
+    test('a task for the sleeping MacBook runs in the box, and the slot says so', () {
+      final r = Rig();
+      r.console.toggleMac();
+      r.say('THÊM HIỆU ỨNG CHỜ CHO NÚT ĐĂNG NHẬP TRÊN MA QUỐC');
+      final task = r.task;
+      expect(task.task, title);
+      expect(task.machine, Machine.box);
+      expect(task.log, contains('MacBook đang ngủ → chạy trong hộp'));
+      expect(r.console.note, 'MacBook đang ngủ → chạy trong hộp');
+      expect(r.console.isPaused(task), isFalse);
+      r.until(() => task.card is QuestionCard);
+    });
+
+    test('no machine named: the box', () {
+      final r = Rig();
+      r.say('THÊM HIỆU ỨNG CHỜ CHO NÚT ĐĂNG NHẬP');
+      expect(r.task.machine, Machine.box);
+      expect(r.task.log, ['Nhận việc từ giọng nói']);
+      expect(r.console.agentsOn(Machine.box), 3);
+    });
+
+    test('a machine and nothing else is not a task', () {
+      final r = Rig();
+      r.say('TRÊN LAPTOP');
+      expect(r.console.lanes, hasLength(3));
+      expect(r.console.note, contains('Không nghe rõ'));
+    });
+
+    test('a new agent on the MacBook pauses too when the Mac falls asleep', () {
+      final r = Rig();
+      r.say('SỬA LỖI ĐĂNG XUẤT TRÊN LAPTOP');
+      final task = r.task;
+      r.run(const Duration(seconds: 1));
+      expect(task.card, isNull);
+      r.console.toggleMac();
+      expect(task.card, isA<HandoffCard>());
+      expect(task.state, LaneState.paused);
+      expect(r.console.isPaused(task), isTrue);
     });
   });
 

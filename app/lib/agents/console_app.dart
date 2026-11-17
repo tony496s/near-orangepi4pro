@@ -116,15 +116,27 @@ class ConsoleStrip extends StatelessWidget {
   }
 }
 
-/// Left rail: how many agents the box runs and why that is safe. Tap: the comparison screen; double tap: autoplay on
-/// or off; long press: start over.
+/// Colour of a machine's label on a lane: the box cool, the MacBook hot, the build server plain.
+Color machineColor(Machine m) => switch (m) {
+      Machine.box => Ink.cool,
+      Machine.macbook => Ink.hot,
+      Machine.server => Ink.dim,
+    };
+
+/// Left rail: how many agents run, and on which machines. Tap: the comparison screen; double tap: autoplay on or off;
+/// long press: start over. The MacBook row is the presenter's lid: tap it after closing the MacBook (the board cannot
+/// see the lid), tap again when it is open.
 class Rail extends StatelessWidget {
   const Rail({super.key, required this.c});
   final AgentConsole c;
 
   @override
   Widget build(BuildContext context) {
-    final ram = c.ramGb.toStringAsFixed(1).replaceAll('.', ',');
+    final machines = Machine.values.where((m) => c.agentsOn(m) > 0).length;
+    final done = c.lanes.length - c.running;
+    final under = done > 0
+        ? '${c.running} đang chạy · $done xong'
+        : (machines > 1 ? 'đang chạy trên $machines máy' : 'đang chạy trong hộp');
     return GestureDetector(
       key: const Key('rail'),
       behavior: HitTestBehavior.opaque,
@@ -133,7 +145,7 @@ class Rail extends StatelessWidget {
       onLongPress: c.reset,
       child: Container(
         width: railWidth,
-        padding: const EdgeInsets.fromLTRB(22, 18, 12, 16),
+        padding: const EdgeInsets.fromLTRB(22, 18, 12, 14),
         decoration: const BoxDecoration(border: Border(right: BorderSide(color: Ink.hair))),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -147,17 +159,11 @@ class Rail extends StatelessWidget {
                 TextSpan(text: '  agent', style: cs(22, weight: FontWeight.w500)),
               ]),
             ),
-            Text(
-              c.running == c.lanes.length ? 'đang chạy trong hộp' : '${c.running} đang chạy · ${c.lanes.length - c.running} xong',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: cs(15, color: Ink.dim),
-            ),
+            Text(under, maxLines: 1, overflow: TextOverflow.ellipsis, style: cs(15, color: Ink.dim)),
             const Spacer(),
-            _RailRow(color: Ink.cool, text: 'Mac đã gập'),
-            _RailRow(color: Ink.cool, text: 'Cách ly máy chính'),
-            _RailRow(color: Ink.hot, text: 'Tự cho qua ${c.autoApproved} lệnh'),
-            _RailRow(color: Ink.faint, text: 'RAM $ram / 6 GB'),
+            for (final m in Machine.values) MachineRow(c: c, machine: m),
+            const SizedBox(height: 2),
+            _fit(Text('Cách ly · tự cho qua ${c.autoApproved} lệnh', maxLines: 1, style: cs(13, color: Ink.dim))),
           ],
         ),
       ),
@@ -165,22 +171,47 @@ class Rail extends StatelessWidget {
   }
 }
 
-class _RailRow extends StatelessWidget {
-  const _RailRow({required this.color, required this.text});
-  final Color color;
-  final String text;
+/// A machine on the rail: its name, and how many agents run on it and how it is. The MacBook's row is a finger-sized
+/// switch for its lid.
+class MachineRow extends StatelessWidget {
+  const MachineRow({super.key, required this.c, required this.machine});
+  final AgentConsole c;
+  final Machine machine;
+
+  static const height = 48.0;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(top: 7),
-        child: Row(
-          children: [
-            Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-            const SizedBox(width: 10),
-            Expanded(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: cs(15, color: Ink.dim))),
-          ],
-        ),
-      );
+  Widget build(BuildContext context) {
+    final n = c.agentsOn(machine);
+    final status = c.statusOf(machine);
+    final dot = switch (machine) {
+      Machine.box => Ink.cool,
+      Machine.macbook => c.macAsleep ? Ink.faint : Ink.hot,
+      Machine.server => c.serverBusy ? Ink.cool : Ink.faint,
+    };
+    final row = SizedBox(
+      height: height,
+      child: Row(
+        children: [
+          Container(width: 9, height: 9, decoration: BoxDecoration(color: dot, shape: BoxShape.circle)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(machine.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: cs(15, weight: FontWeight.w600)),
+                Text(n > 0 ? '$n agent · $status' : status,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: cs(13, color: Ink.dim)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (machine != Machine.macbook) return row;
+    return GestureDetector(key: const Key('machine-macbook'), behavior: HitTestBehavior.opaque, onTap: c.toggleMac, child: row);
+  }
 }
 
 /// One agent. Normal: repo, task, live log, progress. With a card: the card takes most of the (wider) lane.
@@ -218,23 +249,40 @@ class LaneView extends StatelessWidget {
         HandoffCard() => 470,
       };
 
+  /// Its machine sleeps, or the human left it waiting for the machine to wake.
+  bool get _paused => c.isPaused(lane) || lane.state == LaneState.paused;
+
+  LaneState get _state => _paused ? LaneState.paused : lane.state;
+
   Widget _plain(double w) {
     final narrow = w < 220;
     final now = c.clock.now();
-    final color = stateColor(lane.state);
+    final paused = _paused;
+    final color = stateColor(_state);
+    // A narrow lane has room only for the first half of the paused label ("Tạm dừng"), and only without the run time.
+    final label = !paused
+        ? (lane.summary ?? lane.state.label)
+        : (narrow ? LaneState.paused.label.split(' · ').first : LaneState.paused.label);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _header(narrow),
+        const SizedBox(height: 5),
+        MachineTag(lane.machine),
         const SizedBox(height: 6),
         Text(
           lane.task,
           maxLines: narrow ? 3 : 2,
           overflow: TextOverflow.ellipsis,
-          style: cs(narrow ? 16 : 19, weight: FontWeight.w500, height: 1.25),
+          style: cs(narrow ? 16 : 19, weight: FontWeight.w500, height: 1.25, color: paused ? Ink.dim : Ink.ink),
         ),
         const SizedBox(height: 8),
-        Expanded(child: LogTail(lines: lane.log, size: narrow ? 12 : 13.5, live: lane.state == LaneState.running, beat: c.beat)),
+        Expanded(
+          child: Opacity(
+            opacity: paused ? .45 : 1,
+            child: LogTail(lines: lane.log, size: narrow ? 12 : 13.5, live: !paused && lane.state == LaneState.running, beat: c.beat),
+          ),
+        ),
         const SizedBox(height: 8),
         if (lane.state == LaneState.ready)
           _ShipButton(onTap: () => c.ship(lane), narrow: narrow)
@@ -245,14 +293,17 @@ class LaneView extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  lane.summary ?? lane.state.label,
+                  label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: cs(narrow ? 13 : 15, weight: FontWeight.w600, color: color),
+                  // The paused colour is faint for the dot and the bar; the words still need to be read.
+                  style: cs(narrow ? 13 : 15, weight: FontWeight.w600, color: paused ? Ink.dim : color),
                 ),
               ),
-              const SizedBox(width: 6),
-              Text(clock(lane.elapsed(now)), style: cs(narrow ? 13 : 15, color: Ink.dim)),
+              if (!(paused && narrow)) ...[
+                const SizedBox(width: 6),
+                Text(clock(lane.elapsed(now)), style: cs(narrow ? 13 : 15, color: Ink.dim)),
+              ],
             ],
           ),
         ],
@@ -262,7 +313,7 @@ class LaneView extends StatelessWidget {
 
   Widget _header(bool narrow) => Row(
         children: [
-          _Dot(color: stateColor(lane.state), pulse: lane.state.needsHuman, beat: c.beat),
+          _Dot(color: stateColor(_state), pulse: lane.state.needsHuman, beat: c.beat),
           const SizedBox(width: 8),
           Expanded(
             child: Text(lane.repo,
@@ -287,6 +338,8 @@ class LaneView extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _header(true),
+                const SizedBox(height: 5),
+                MachineTag(lane.machine),
                 const SizedBox(height: 6),
                 _EngineChip(lane.engine),
                 const SizedBox(height: 10),
@@ -305,7 +358,7 @@ class LaneView extends StatelessWidget {
               DangerCard() => DangerView(card: card, onPick: (i) => c.resolve(lane, i)),
               ReviewCard() => ReviewView(card: card, beat: c.beat, onPick: (i) => c.resolve(lane, i)),
               ShipCard() => ShipView(card: card, beat: c.beat),
-              HandoffCard() => const SizedBox(), // TODO(ui): HandoffView
+              HandoffCard() => HandoffView(card: card, onPick: (i) => c.resolve(lane, i)),
             },
           ),
         ],
@@ -377,6 +430,25 @@ class _EngineChip extends StatelessWidget {
         decoration: BoxDecoration(border: Border.all(color: Ink.hair, width: 1.5), borderRadius: BorderRadius.circular(8)),
         child: Text(engine.label.toUpperCase(), style: cs(11, weight: FontWeight.w600, color: Ink.dim, spacing: 1.2)),
       );
+}
+
+/// Where a lane's agent runs ("TRONG HỘP", "TRÊN MACBOOK"), in the machine's colour. Shrinks a little rather than
+/// cut in the narrowest lane.
+class MachineTag extends StatelessWidget {
+  const MachineTag(this.machine, {super.key});
+  final Machine machine;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = machineColor(machine);
+    return _fit(
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(color: color.withValues(alpha: .14), borderRadius: BorderRadius.circular(6)),
+        child: Text(machine.tag, maxLines: 1, style: cs(11, weight: FontWeight.w700, color: color, spacing: .8)),
+      ),
+    );
+  }
 }
 
 class _Bar extends StatelessWidget {
@@ -537,6 +609,43 @@ class DangerView extends StatelessWidget {
       );
 }
 
+/// The MacBook went to sleep with its agent half way: move the agent into the box, or leave it until the Mac wakes.
+class HandoffView extends StatelessWidget {
+  const HandoffView({super.key, required this.card, required this.onPick});
+  final HandoffCard card;
+  final void Function(int) onPick;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          eyebrowText('${card.from.name.toUpperCase()} VỪA NGỦ', Ink.hot),
+          const SizedBox(height: 10),
+          Text('Agent đang làm dở. Chuyển vào hộp để chạy tiếp?',
+              maxLines: 3, overflow: TextOverflow.ellipsis, style: cs(23, weight: FontWeight.w500, height: 1.3)),
+          const SizedBox(height: 6),
+          Text('Mang theo nhánh git và phiên làm việc qua Harness',
+              maxLines: 2, overflow: TextOverflow.ellipsis, style: cs(15, color: Ink.dim, height: 1.3)),
+          const Spacer(),
+          Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: Choice(
+                  key: const Key('handoff-move'),
+                  label: '★ Chuyển vào hộp',
+                  style: ChoiceStyle.cool,
+                  onTap: () => onPick(HandoffCard.move),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Choice(key: const Key('handoff-stay'), label: 'Để đó', onTap: () => onPick(HandoffCard.stay))),
+            ],
+          ),
+        ],
+      );
+}
+
 class ReviewView extends StatelessWidget {
   const ReviewView({super.key, required this.card, required this.beat, required this.onPick});
   final ReviewCard card;
@@ -670,26 +779,39 @@ class ShipView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final done = card.done;
+    final place = done ? '' : card.placeOf(card.current);
+    final stage = done ? '' : card.stages[card.current];
+    // Why the stage runs where it does: the board (ARM Linux) cannot build or sign iOS.
+    final why = place.isEmpty
+        ? 'Chạy trên CI, không cần mở laptop'
+        : (place == Machine.server.name ? 'Board ARM không build iOS, hộp giao cho $place' : 'Không cần mở laptop');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         eyebrowText(done ? 'ĐÃ LÊN TESTFLIGHT' : 'ĐANG SHIP BẢN TEST · TESTFLIGHT', done ? Ink.cool : Ink.hot),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             for (var i = 0; i < card.stages.length; i++)
-              Expanded(child: _StageMark(label: card.stages[i], state: i < card.current ? 2 : (i == card.current ? 1 : 0), beat: beat)),
+              Expanded(
+                child: _StageMark(
+                  label: card.stages[i],
+                  place: card.placeOf(i),
+                  state: i < card.current ? 2 : (i == card.current ? 1 : 0),
+                  beat: beat,
+                ),
+              ),
           ],
         ),
         const Spacer(),
         if (done) ...[
-          Text('Bản ${card.version} đã lên TestFlight', maxLines: 1, overflow: TextOverflow.ellipsis, style: cs(26, weight: FontWeight.w600)),
+          _fit(Text('Bản ${card.version} đã lên TestFlight', maxLines: 1, style: cs(26, weight: FontWeight.w600))),
           Text('Tester nhận thông báo trên iPhone', style: cs(16, color: Ink.dim)),
         ] else ...[
-          Text('${card.stages[card.current]}…', style: cs(22, weight: FontWeight.w500)),
+          _fit(Text(place.isEmpty ? '$stage…' : '$stage trên $place…', maxLines: 1, style: cs(22, weight: FontWeight.w500))),
           const SizedBox(height: 4),
-          Text('Chạy trên CI, không cần mở laptop', style: cs(16, color: Ink.dim)),
+          Text(why, maxLines: 2, overflow: TextOverflow.ellipsis, style: cs(15, color: Ink.dim, height: 1.3)),
         ],
       ],
     );
@@ -697,8 +819,11 @@ class ShipView extends StatelessWidget {
 }
 
 class _StageMark extends StatelessWidget {
-  const _StageMark({required this.label, required this.state, required this.beat});
+  const _StageMark({required this.label, required this.place, required this.state, required this.beat});
   final String label;
+
+  /// Where the stage runs ("Server build"); empty: not said.
+  final String place;
 
   /// 0 waiting, 1 in progress, 2 done.
   final int state;
@@ -727,6 +852,15 @@ class _StageMark extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: cs(15, weight: state == 1 ? FontWeight.w600 : FontWeight.w400, color: state == 0 ? Ink.dim : Ink.ink)),
+          if (place.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            // Two lines for a long place ("App Store / Connect") rather than a cut one.
+            Text(place,
+                maxLines: 2,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+                style: cs(12, color: Ink.dim, height: 1.2)),
+          ],
         ],
       );
 }

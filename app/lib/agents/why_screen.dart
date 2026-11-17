@@ -3,19 +3,68 @@ import 'package:flutter/widgets.dart';
 import '../ui/theme.dart';
 import 'console_app.dart';
 
-/// One device in the comparison.
-typedef WhyRow = ({String device, String runsOn, String lidClosed, String isolated, String controls, String price});
+/// One device in the comparison. [others]: whether it also drives agents on other machines (a laptop, a build server).
+typedef WhyRow = ({
+  String device,
+  String runsOn,
+  String lidClosed,
+  String others,
+  String isolated,
+  String controls,
+  String price,
+});
 
 /// The closing screen of the demo: every other agent gadget is a remote for a laptop that must stay open.
 const whyRows = <WhyRow>[
-  (device: 'Near', runsOn: 'Trong hộp', lidClosed: 'Vẫn chạy', isolated: 'Có', controls: 'Màn chạm + giọng local', price: '~\$299'),
-  (device: 'Núm / Pro Harness', runsOn: 'Trên laptop', lidClosed: 'Dừng', isolated: 'Không', controls: 'Núm, màn nhỏ', price: '\$129–299'),
-  (device: 'SlashVibe, MX Keypad', runsOn: 'Trên laptop', lidClosed: 'Dừng', isolated: 'Không', controls: 'Phím tắt', price: '\$99–169'),
-  (device: 'Remote trên điện thoại', runsOn: 'Trên laptop', lidClosed: 'Dừng', isolated: 'Không', controls: 'App, chạm từng lệnh', price: 'Miễn phí'),
-  (device: 'Mac mini', runsOn: 'Trong máy', lidClosed: 'Vẫn chạy', isolated: 'Có', controls: 'Không có', price: '\$599'),
+  (
+    device: 'Near',
+    runsOn: 'Trong hộp',
+    lidClosed: 'Vẫn chạy',
+    others: 'Có',
+    isolated: 'Có',
+    controls: 'Màn chạm + giọng local',
+    price: '~\$299',
+  ),
+  (
+    device: 'Núm / Pro Harness',
+    runsOn: 'Trên laptop',
+    lidClosed: 'Dừng',
+    others: 'Có',
+    isolated: 'Không',
+    controls: 'Núm, màn nhỏ',
+    price: '\$129–299',
+  ),
+  (
+    device: 'SlashVibe, MX Keypad',
+    runsOn: 'Trên laptop',
+    lidClosed: 'Dừng',
+    others: 'Máy đang cắm',
+    isolated: 'Không',
+    controls: 'Phím tắt',
+    price: '\$99–169',
+  ),
+  (
+    device: 'Remote trên điện thoại',
+    runsOn: 'Trên laptop',
+    lidClosed: 'Dừng',
+    others: 'Có',
+    isolated: 'Không',
+    controls: 'App, chạm từng lệnh',
+    price: 'Miễn phí',
+  ),
+  (
+    device: 'Mac mini',
+    runsOn: 'Trong máy',
+    lidClosed: 'Vẫn chạy',
+    others: 'Không',
+    isolated: 'Có',
+    controls: 'Không có',
+    price: '\$599',
+  ),
 ];
 
-const _cols = [250.0, 150.0, 150.0, 110.0, 250.0, 110.0];
+/// Column widths; with the row padding they fill the ~1084 px right of the title.
+const _cols = [228.0, 132.0, 116.0, 172.0, 92.0, 212.0, 92.0];
 
 class WhyScreen extends StatelessWidget {
   const WhyScreen({super.key, required this.onClose});
@@ -52,10 +101,11 @@ class WhyScreen extends StatelessWidget {
               Expanded(
                 child: Column(
                   children: [
-                    _row(const ['', 'Agent chạy ở', 'Gập laptop', 'Cách ly', 'Điều khiển', 'Giá'], header: true),
+                    _row(const ['', 'Agent chạy ở', 'Gập laptop', 'Điều khiển máy khác', 'Cách ly', 'Điều khiển', 'Giá'],
+                        header: true),
                     for (final r in whyRows)
                       Expanded(
-                        child: _row([r.device, r.runsOn, r.lidClosed, r.isolated, r.controls, r.price],
+                        child: _row([r.device, r.runsOn, r.lidClosed, r.others, r.isolated, r.controls, r.price],
                             near: r.device == 'Near'),
                       ),
                   ],

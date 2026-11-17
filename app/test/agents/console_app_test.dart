@@ -54,6 +54,15 @@ class ConsoleHarness {
     await settle();
   }
 
+  /// [text] is on screen and drawn whole everywhere it shows: not cut by an ellipsis.
+  void expectWhole(String text) {
+    final f = find.descendant(of: find.text(text), matching: find.byType(RichText));
+    expect(f, findsWidgets, reason: text);
+    for (final paragraph in tester.renderObjectList<RenderParagraph>(f)) {
+      expect(paragraph.didExceedMaxLines, isFalse, reason: '"$text" is cut');
+    }
+  }
+
   Future<void> tap(Key key) async {
     await tester.tap(find.byKey(key));
     await settle();
@@ -81,7 +90,41 @@ void main() {
     expect(find.text('harness-backend'), findsOneWidget);
     expect(find.text('Giao việc'), findsOneWidget);
     expect(find.text('NEAR · HỘP AGENT'), findsOneWidget);
+    expect(find.text('đang chạy trên 2 máy'), findsOneWidget);
+    // Two agents in the box, one on the MacBook.
+    expect(find.text('TRONG HỘP'), findsNWidgets(2));
+    expect(find.text('TRÊN MACBOOK'), findsOneWidget);
+    for (final m in Machine.values) {
+      h.expectWhole(m.name);
+    }
+    h.expectWhole('2 agent · luôn bật');
+    h.expectWhole('1 agent · đang mở');
+    h.expectWhole('rảnh');
     await h.shot('1-idle');
+
+    // The presenter closes the MacBook and taps it on the rail: its agent stops and offers to move into the box.
+    final web = h.c.lanes.firstWhere((l) => l.machine == Machine.macbook);
+    await h.tap(const Key('machine-macbook'));
+    expect(h.c.macAsleep, isTrue);
+    expect(h.c.why, isFalse, reason: 'the MacBook row is not the rail tap');
+    expect(web.card, isA<HandoffCard>());
+    await h.run(const Duration(milliseconds: 600));
+    expect(find.byKey(const Key('handoff-move')), findsOneWidget);
+    for (final s in ['MACBOOK VỪA NGỦ', 'Agent đang làm dở. Chuyển vào hộp để chạy tiếp?', '★ Chuyển vào hộp', 'Để đó']) {
+      h.expectWhole(s);
+    }
+    h.expectWhole('1 agent · đã ngủ');
+    await h.shot('1b-handoff');
+
+    await h.tap(const Key('handoff-move'));
+    expect(web.machine, Machine.box);
+    expect(web.card, isNull);
+    await h.run(const Duration(seconds: 3));
+    expect(find.text('TRÊN MACBOOK'), findsNothing);
+    expect(find.text('TRONG HỘP'), findsNWidgets(3));
+    expect(find.text('đang chạy trong hộp'), findsOneWidget);
+    h.expectWhole('3 agent · luôn bật');
+    await h.shot('1c-moved-into-box');
 
     await h.tap(const Key('slot'));
     expect(h.voice.sent.last, 'listen a1');
@@ -125,13 +168,25 @@ void main() {
     expect(find.byKey(const Key('ship')), findsOneWidget);
     await h.shot('7-ready');
     await h.tap(const Key('ship'));
-    await h.run(const Duration(seconds: 4));
+    await h.run(const Duration(milliseconds: 600));
     expect(find.text('ĐANG SHIP BẢN TEST · TESTFLIGHT'), findsOneWidget);
+    // The iOS build runs on the build server: the board cannot build iOS.
+    expect(find.text('Build iOS trên Server build…'), findsOneWidget);
+    expect(find.textContaining('Board ARM không build iOS'), findsOneWidget);
+    h.expectWhole('đang build');
     await h.shot('8-shipping');
+    await h.until(() => task.card is ShipCard && (task.card! as ShipCard).current == 3);
+    await h.run(const Duration(milliseconds: 600));
+    expect(find.text('Apple xử lý trên App Store Connect…'), findsOneWidget);
+    await h.shot('8a-shipping-apple');
     await h.until(() => task.card is ShipCard && (task.card! as ShipCard).done);
+    h.expectWhole('Bản 0.1.71 đã lên TestFlight');
     await h.shot('8b-shipped');
     await h.until(() => h.c.why);
     expect(find.text('VÌ SAO LÀ NEAR'), findsOneWidget);
+    expect(find.text('Điều khiển máy khác'), findsOneWidget);
+    h.expectWhole('Điều khiển máy khác');
+    h.expectWhole('Máy đang cắm');
     await h.shot('9-why');
     await h.tap(const Key('why'));
     expect(h.c.why, isFalse);
@@ -142,14 +197,86 @@ void main() {
     final h = ConsoleHarness(tester);
     await h.pump();
     final task = h.c.addTask('Thêm loading cho nút đăng nhập ở màn hình chính của app điện thoại')!;
-    h.c.addTask('Sửa api backend trả chậm khi tải danh sách');
+    h.c.addTask('Sửa api backend trả chậm khi tải danh sách')!.machine = Machine.server;
     task
       ..card = const ReviewCard(tests: '42/42', diff: '+38 −6', files: 3, took: '4 phút')
       ..pending = ((_) => const [])
       ..state = LaneState.review;
     await h.run(const Duration(seconds: 3));
     expect(find.text('Duyệt & tạo PR'), findsOneWidget);
+    // The machine labels stay whole in the narrowest lanes.
+    h.expectWhole('TRÊN MACBOOK');
+    h.expectWhole('TRÊN SERVER');
+    h.expectWhole('TRONG HỘP');
+    expect(find.text('đang chạy trên 3 máy'), findsOneWidget);
+    h.expectWhole('1 agent · đang build');
     await h.shot('11-five-lanes-review');
+  });
+
+  testWidgets('five lanes and the handoff card still fit', (tester) async {
+    final h = ConsoleHarness(tester);
+    await h.pump();
+    h.c.addTask('Thêm loading cho nút đăng nhập ở màn hình chính của app điện thoại');
+    h.c.addTask('Sửa api backend trả chậm khi tải danh sách');
+    await h.tap(const Key('machine-macbook'));
+    await h.run(const Duration(seconds: 1));
+    expect(find.byKey(const Key('handoff-move')), findsOneWidget);
+    h.expectWhole('★ Chuyển vào hộp');
+    h.expectWhole('MACBOOK VỪA NGỦ');
+    await h.shot('11b-five-lanes-handoff');
+  });
+
+  testWidgets('leave the agent on the sleeping MacBook: paused until the Mac wakes', (tester) async {
+    final h = ConsoleHarness(tester);
+    await h.pump();
+    final web = h.c.lanes.firstWhere((l) => l.machine == Machine.macbook);
+    await h.tap(const Key('machine-macbook'));
+    await h.run(const Duration(milliseconds: 600));
+    await h.tap(const Key('handoff-stay'));
+    expect(web.machine, Machine.macbook);
+    expect(web.state, LaneState.paused);
+    await h.run(const Duration(seconds: 1));
+    expect(find.byKey(const Key('handoff-move')), findsNothing);
+    expect(find.text('TRÊN MACBOOK'), findsOneWidget);
+    h.expectWhole(LaneState.paused.label);
+    h.expectWhole('1 agent · đã ngủ');
+    await h.shot('13-paused');
+
+    // Nothing moves while the Mac sleeps.
+    final logged = web.log.length;
+    await h.run(const Duration(seconds: 10));
+    expect(web.log, hasLength(logged));
+
+    await h.tap(const Key('machine-macbook'));
+    expect(h.c.macAsleep, isFalse);
+    expect(h.c.why, isFalse);
+    expect(web.state, LaneState.running);
+    await h.run(const Duration(seconds: 10));
+    expect(find.text(LaneState.paused.label), findsNothing);
+    expect(find.text('Đang chạy'), findsNWidgets(3));
+    h.expectWhole('1 agent · đang mở');
+    expect(web.log.length, greaterThan(logged + 1));
+    await h.shot('13b-mac-awake');
+  });
+
+  testWidgets('a narrow paused lane says only "Tạm dừng"', (tester) async {
+    final h = ConsoleHarness(tester);
+    await h.pump();
+    final web = h.c.lanes.firstWhere((l) => l.machine == Machine.macbook);
+    await h.tap(const Key('machine-macbook'));
+    await h.run(const Duration(milliseconds: 600));
+    await h.tap(const Key('handoff-stay'));
+    final task = h.c.addTask('Thêm loading cho nút đăng nhập')!;
+    h.c.addTask('Sửa api backend trả chậm');
+    task
+      ..card = const ReviewCard(tests: '42/42', diff: '+38 −6', files: 3, took: '4 phút')
+      ..pending = ((_) => const [])
+      ..state = LaneState.review;
+    await h.run(const Duration(seconds: 1));
+    expect(h.c.isPaused(web), isTrue);
+    h.expectWhole('Tạm dừng');
+    h.expectWhole('1 agent · đã ngủ');
+    await h.shot('13c-paused-narrow');
   });
 
   testWidgets('rail: tap shows the comparison, long press starts over', (tester) async {
